@@ -1,0 +1,24 @@
+{
+  "counterparty_metadata": {
+    "user_id": "usr_friend",
+    "verification_status": "verified",
+    "account_age_days": 1500,
+    "geo_location": "RU-MOW",
+    "geo_mismatch": false,
+    "kyc_level": "full"
+  },
+  "messages": [
+    {
+      "sender_id": "usr_friend",
+      "receiver_id": "usr_1057",
+      "message_text": "Привет! Как дела? Когда увидимся?",
+      "timestamp": "2024-05-20T14:30:00Z"
+    },
+    {
+      "sender_id": "usr_1057",
+      "receiver_id": "usr_friend",
+      "message_text": "Завтра вечером в семь?",
+      "timestamp": "2024-05-20T14:31:15Z"
+    }
+  ]
+}

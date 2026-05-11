@@ -1,0 +1,103 @@
+{
+  "fast-pay-service.ru": {
+    "site_name": "fast-pay-service.ru",
+    "registration_date": "2024-01-10",
+    "domain_age_days": 120,
+    "owner_name": "ИП Петров А.А.",
+    "admin_contact": "info@fast-pay-service.ru",
+    "inn": "771234567890",
+    "server_ip": "45.132.67.89",
+    "reviews": [
+      {"rating": 5, "text": "хорошо"},
+      {"rating": 5, "text": "норм"},
+      {"rating": 1, "text": "Мошенники, не пришел товар, деньги не вернули!"},
+      {"rating": 1, "text": "Обман, фишинговый сайт, украли данные карты."}
+    ]
+  },
+  "ozon.ru": {
+    "site_name": "ozon.ru",
+    "registration_date": "2000-04-23",
+    "domain_age_days": 9100,
+    "owner_name": "OOO Интернет Решения",
+    "admin_contact": "support@ozon.ru",
+    "inn": "7704217370",
+    "server_ip": "176.99.10.10",
+    "reviews": [
+      {"rating": 5, "text": "Привезли вовремя"},
+      {"rating": 4, "text": "Норм магазин, пользуюсь годами"},
+      {"rating": 5, "text": "Возврат без проблем"},
+      {"rating": 3, "text": "Иногда долгая доставка"},
+      {"rating": 5, "text": "Хороший выбор и цены"}
+    ]
+  },
+  "wildberries.ru": {
+    "site_name": "wildberries.ru",
+    "registration_date": "2004-06-30",
+    "domain_age_days": 7800,
+    "owner_name": "ООО Вайлдберриз",
+    "admin_contact": "info@wildberries.ru",
+    "inn": "7721546864",
+    "server_ip": "194.67.71.150",
+    "reviews": [
+      {"rating": 5, "text": "Огромный ассортимент"},
+      {"rating": 4, "text": "Бывают подмены, но в основном ок"},
+      {"rating": 5, "text": "Удобный возврат"},
+      {"rating": 5, "text": "Доставка быстрая"}
+    ]
+  },
+  "shop-cards-deal.cc": {
+    "site_name": "shop-cards-deal.cc",
+    "registration_date": "2024-12-01",
+    "domain_age_days": 14,
+    "owner_name": "Private",
+    "admin_contact": "noreply@protonmail.com",
+    "inn": "0000000000",
+    "server_ip": "185.220.101.7",
+    "reviews": [
+      {"rating": 5, "text": "Огонь!"},
+      {"rating": 1, "text": "Кинули на 10000, не отвечают"},
+      {"rating": 1, "text": "Заплатил - ничего не пришло"}
+    ]
+  },
+  "iphone-discount-pro.shop": {
+    "site_name": "iphone-discount-pro.shop",
+    "registration_date": "2025-02-15",
+    "domain_age_days": 35,
+    "owner_name": "ИП Сидоров",
+    "admin_contact": "manager@iphone-discount-pro.shop",
+    "inn": "997612345678",
+    "server_ip": "91.219.236.11",
+    "reviews": [
+      {"rating": 5, "text": "Топовый магаз!"},
+      {"rating": 5, "text": "Айфон за полцены пришел!"}
+    ]
+  },
+  "rzd.ru": {
+    "site_name": "rzd.ru",
+    "registration_date": "2003-05-18",
+    "domain_age_days": 8200,
+    "owner_name": "ОАО РЖД",
+    "admin_contact": "info@rzd.ru",
+    "inn": "7708503727",
+    "server_ip": "194.226.13.195",
+    "reviews": [
+      {"rating": 4, "text": "Покупаю билеты, всё работает"},
+      {"rating": 5, "text": "Вернули деньги за неиспользованный билет"},
+      {"rating": 3, "text": "Иногда зависает"}
+    ]
+  },
+  "delivery-club.ru": {
+    "site_name": "delivery-club.ru",
+    "registration_date": "2009-09-12",
+    "domain_age_days": 5800,
+    "owner_name": "ООО Деливери Клаб",
+    "admin_contact": "support@delivery-club.ru",
+    "inn": "7705605895",
+    "server_ip": "178.176.49.18",
+    "reviews": [
+      {"rating": 4, "text": "Удобно"},
+      {"rating": 5, "text": "Быстрая доставка"},
+      {"rating": 4, "text": "Иногда забывают столовые приборы"}
+    ]
+  }
+}

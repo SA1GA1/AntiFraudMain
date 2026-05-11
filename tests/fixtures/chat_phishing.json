@@ -1,0 +1,24 @@
+{
+  "counterparty_metadata": {
+    "user_id": "usr_8492",
+    "verification_status": "unverified",
+    "account_age_days": 3,
+    "geo_location": "KZ-ALA",
+    "geo_mismatch": true,
+    "kyc_level": "none"
+  },
+  "messages": [
+    {
+      "sender_id": "usr_8492",
+      "receiver_id": "usr_1057",
+      "message_text": "Здравствуйте! Это служба безопасности банка. Ваш счёт под угрозой. Срочно переведите средства на безопасный кошелёк: https://sber-bank-secure.ru/verify",
+      "timestamp": "2024-05-20T14:30:00Z"
+    },
+    {
+      "sender_id": "usr_1057",
+      "receiver_id": "usr_8492",
+      "message_text": "А как я могу проверить, что это вы?",
+      "timestamp": "2024-05-20T14:31:15Z"
+    }
+  ]
+}
