@@ -182,32 +182,55 @@ class Preprocessor:
     def transform_events(self, events_df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
         ev = _prepare_event_columns(events_df)
         n = len(ev)
+        # Колонки берём из обученного pickle, а не только из текущих NUMERIC_COLS —
+        # иначе после расширения схемы старый .pt даёт KeyError и 500 на инференсе.
+        numeric_cols = list(self.num_mean.keys()) or list(NUMERIC_COLS)
+        categorical_cols = list(self.vocab.keys()) or list(CATEGORICAL_COLS)
 
-        num = np.empty((n, len(NUMERIC_COLS)), dtype=np.float32)
-        for i, col in enumerate(NUMERIC_COLS):
-            v = pd.to_numeric(ev[col], errors="coerce").astype(np.float64).to_numpy()
-            v = (v - self.num_mean[col]) / self.num_std[col]
+        num = np.empty((n, len(numeric_cols)), dtype=np.float32)
+        for i, col in enumerate(numeric_cols):
+            if col in ev.columns:
+                v = pd.to_numeric(ev[col], errors="coerce").astype(np.float64).to_numpy()
+            else:
+                v = np.zeros(n, dtype=np.float64)
+            mu, sigma = self.num_mean[col], self.num_std[col]
+            v = (v - mu) / sigma
             v = np.nan_to_num(v, nan=0.0, posinf=0.0, neginf=0.0)
             num[:, i] = v.astype(np.float32)
 
-        cat = np.empty((n, len(CATEGORICAL_COLS)), dtype=np.int64)
-        for i, col in enumerate(CATEGORICAL_COLS):
+        cat = np.empty((n, len(categorical_cols)), dtype=np.int64)
+        for i, col in enumerate(categorical_cols):
             mapping = self.vocab[col]
-            vals = ev[col].astype(str).to_numpy()
+            if col in ev.columns:
+                vals = ev[col].astype(str).to_numpy()
+            else:
+                vals = np.full(n, _NAN_TOKEN, dtype=object)
             cat[:, i] = np.array([mapping.get(v, 0) for v in vals], dtype=np.int64)
         return num, cat
 
     def transform_aggregates(self, customer_ids: np.ndarray, agg_df: pd.DataFrame | None) -> tuple[np.ndarray, np.ndarray]:
         n = len(customer_ids)
-        agg_arr = np.zeros((n, len(AGG_FEATURE_COLUMNS)), dtype=np.float32)
+        agg_cols = list(self.agg_mean.keys())
+        if not agg_cols:
+            agg_arr = np.zeros((n, len(AGG_FEATURE_COLUMNS)), dtype=np.float32)
+            has_hist = np.zeros((n, 1), dtype=np.float32)
+            return agg_arr, has_hist
+
+        agg_arr = np.zeros((n, len(agg_cols)), dtype=np.float32)
         has_hist = np.zeros((n, 1), dtype=np.float32)
-        if agg_df is None or not self.agg_mean:
+        if agg_df is None:
             return agg_arr, has_hist
         agg_indexed = agg_df.set_index("customer_id")
         joined = agg_indexed.reindex(customer_ids)
-        mask_present = joined[AGG_FEATURE_COLUMNS[0]].notna().to_numpy()
+        first = agg_cols[0]
+        if first in joined.columns:
+            mask_present = joined[first].notna().to_numpy()
+        else:
+            mask_present = np.zeros(n, dtype=bool)
         has_hist[:, 0] = mask_present.astype(np.float32)
-        for j, col in enumerate(AGG_FEATURE_COLUMNS):
+        for j, col in enumerate(agg_cols):
+            if col not in joined.columns:
+                continue
             v = pd.to_numeric(joined[col], errors="coerce").astype(np.float64).to_numpy()
             v = (v - self.agg_mean[col]) / self.agg_std[col]
             v = np.nan_to_num(v, nan=0.0, posinf=0.0, neginf=0.0)

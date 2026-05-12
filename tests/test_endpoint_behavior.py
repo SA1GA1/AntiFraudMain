@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.behavior import _MOBILE_ML_BENIGN_OPENAPI_EXAMPLE, _WEB_ML_BENIGN_OPENAPI_EXAMPLE
 from app.config import Settings
 from app.main import create_app
 
@@ -83,3 +84,23 @@ def test_behavior_clean_event_falls_through_to_ml(client):
     body = response.json()
     assert body["used_model"] is True
     assert body["latency_ms"] < 1000
+
+
+def test_behavior_openapi_mobile_ml_benign_is_safe_with_bundled_checkpoint(client):
+    """Синхрон с примером mobile_ml_benign в Swagger: ML вызывается и скор «не фрод»."""
+    response = client.post("/score/behavior", json=_MOBILE_ML_BENIGN_OPENAPI_EXAMPLE)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["used_model"] is True
+    assert body["decision"] == "safe"
+    assert body["score"] < 3.0
+
+
+def test_behavior_openapi_web_ml_benign_low_fraud(client):
+    """Синхрон с примером web_ml_benign в Swagger: web FraudMLP с низкой p_fraud."""
+    response = client.post("/score/behavior", json=_WEB_ML_BENIGN_OPENAPI_EXAMPLE)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["used_model"] is True
+    assert body["decision"] == "safe"
+    assert body["score"] < 3.0
