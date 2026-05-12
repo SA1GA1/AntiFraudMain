@@ -6,14 +6,14 @@ from app.api.score_openapi_examples import MERCHANT_OPENAPI_HIGH_PFRAUD, MERCHAN
 from app.config import Settings
 from app.deps import get_llm, get_merchant, get_settings
 from app.pipelines.merchant.orchestrator import score_merchant
-from app.schemas.common import MerchantScoreRequest, ScoreResponse
+from app.schemas.common import MerchantScoreRequest, SimpleScoreResponse
 
 router = APIRouter(prefix="/score", tags=["merchant"])
 
 
 @router.post(
     "/merchant",
-    response_model=ScoreResponse,
+    response_model=SimpleScoreResponse,
     summary="Score merchant / online store by name or domain",
     description=(
         "Pipeline: GET в merchant_mock → правила → если сработали ИЛИ домен молодой, "
@@ -47,7 +47,7 @@ async def score_merchant_endpoint(
     settings: Settings = Depends(get_settings),
     merchant=Depends(get_merchant),
     llm=Depends(get_llm),
-) -> ScoreResponse:
+) -> SimpleScoreResponse:
     site_name = payload.site_name or payload.merchant_name or ""
     return await score_merchant(
         site_name=str(site_name),

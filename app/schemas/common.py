@@ -4,7 +4,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-Decision = Literal["safe", "review", "sms", "biometry"]
+from app.core.scoring import MobileChallenge, SimpleDecision, WebChallenge
 
 
 class MerchantScoreRequest(BaseModel):
@@ -27,12 +27,34 @@ class MerchantScoreRequest(BaseModel):
     )
 
 
-class ScoreResponse(BaseModel):
+class _BaseScoreResponse(BaseModel):
     score: float = Field(..., ge=0.0, le=10.0, description="Fraud score: 0 — clean, 10 — definitely fraud")
-    decision: Decision = Field(..., description="Recommended action for the bank")
     reasons: list[str] = Field(default_factory=list, description="Human-readable signals that influenced the score")
     used_model: bool = Field(..., description="Whether ML/LLM model was invoked (false = pure rule-based shortcut)")
     latency_ms: int = Field(..., ge=0)
+
+
+class WebBehaviorScoreResponse(_BaseScoreResponse):
+    challenges: list[WebChallenge] = Field(
+        ...,
+        min_length=1,
+        description="Список челленджей для web-клиента (от лёгкого к тяжёлому). \"safe\" — никаких проверок не нужно.",
+    )
+
+
+class MobileBehaviorScoreResponse(_BaseScoreResponse):
+    challenges: list[MobileChallenge] = Field(
+        ...,
+        min_length=1,
+        description="Список челленджей для mobile-клиента (от лёгкого к тяжёлому). \"safe\" — никаких проверок не нужно.",
+    )
+
+
+class SimpleScoreResponse(_BaseScoreResponse):
+    decision: SimpleDecision = Field(
+        ...,
+        description="Бинарное решение: safe — транзакция/контакт чистые, unsafe — есть фрод-сигнал.",
+    )
 
 
 class ReloadModelRequest(BaseModel):

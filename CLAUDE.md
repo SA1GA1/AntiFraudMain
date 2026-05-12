@@ -4,15 +4,31 @@
 
 ## Что это
 
-Backend получает события и возвращает банку **скор фрода 0..10** + рекомендуемый `decision` (`safe`/`review`/`sms`/`biometry`).
+Backend получает события и возвращает банку **скор фрода 0..10** + платформо-зависимый набор `challenges` (для behavior) или бинарный `decision` `safe`/`unsafe` (для chat/merchant).
 
-| Endpoint | Pipeline |
-|---|---|
-| `POST /score/behavior` | 7 правил → fail-fast → PyTorch FraudMLP |
-| `POST /score/chat`     | regex + meta-сигналы → если триггер → LLM (Ollama) |
-| `POST /score/merchant` | GET к merchant_mock → правила → LLM по карточке + отзывам |
-| `POST /admin/reload-model` | Bearer-auth swap модели + customer_features (для daily_flow) |
-| `POST /admin/labels-batch` | Bearer-auth ручная разметка → `~/fraud/labels{,_mobile}/` |
+| Endpoint | Pipeline | Ответ |
+|---|---|---|
+| `POST /score/behavior/web` | 7 правил → fail-fast → PyTorch FraudMLP (web) | `challenges: list[WebChallenge]` |
+| `POST /score/behavior/mobile` | 7 правил → fail-fast → PyTorch FraudMLP (mobile) | `challenges: list[MobileChallenge]` |
+| `POST /score/chat`     | regex + meta-сигналы → если триггер → LLM (Ollama) | `decision: "safe" \| "unsafe"` |
+| `POST /score/merchant` | GET к merchant_mock → правила → LLM по карточке + отзывам | `decision: "safe" \| "unsafe"` |
+| `POST /admin/reload-model` | Bearer-auth swap модели + customer_features (для daily_flow) | — |
+| `POST /admin/labels-batch` | Bearer-auth ручная разметка → `~/fraud/labels{,_mobile}/` | — |
+
+**Challenges** (от лёгкого к тяжёлому):
+- Web: `captcha` < `email` < `sms` < `second_device`. Низкий score → `["safe"]`.
+- Mobile: `gyroscope` (passive baseline) < `touch_id` < `face_id` < `sms` < `email`. Низкий score → `["safe"]`.
+
+Score-границы:
+
+| Score | Web challenges | Mobile challenges |
+|-------|----------------|-------------------|
+| 0.0–2.9 | `["safe"]` | `["safe"]` |
+| 3.0–4.9 | `["captcha"]` | `["gyroscope"]` |
+| 5.0–8.4 | `["captcha", "email", "sms"]` | `["gyroscope", "face_id", "sms"]` |
+| 8.5–10.0 | `["captcha", "email", "sms", "second_device"]` | `["gyroscope", "touch_id", "face_id", "sms", "email"]` |
+
+Маппинг в `app/core/scoring.py:web_challenges_from_score` / `mobile_challenges_from_score`. Threshold для chat/merchant safe↔unsafe — 5.0 (тот же, что и переход в 3-челлендж тир).
 
 ML-модели **не обучаются здесь** — только инференс. Обучение в соседних проектах `../AntiFraudMLMobile/` и `../AntiFraudMLWeb/`.
 
@@ -58,7 +74,7 @@ def _alias_trainer(pkg):
 
 ### 6. Скор `0..10` маппится из весов через `WEIGHT_TO_SCORE = 2.0`
 
-В `core/scoring.py`: `score = clamp(total_weight × 2.0, 0, 10)`. Это значит одно критичное правило (вес 2.0) уже даёт скор 4.0 (decision = `review`). Подкручивать веса в `pipelines/*/rules.py`, не множитель.
+В `core/scoring.py`: `score = clamp(total_weight × 2.0, 0, 10)`. Это значит одно критичное правило (вес 2.0) уже даёт скор 4.0 → challenges = `["captcha"]` для web / `["gyroscope"]` для mobile (а для chat/merchant `decision="safe"`, т.к. порог unsafe = 5.0). Подкручивать веса в `pipelines/*/rules.py`, не множитель.
 
 ### 7. Event sink — fire-and-forget, не часть hot path'а
 

@@ -31,6 +31,10 @@ def _load_event(path: Path) -> dict:
     return {k: v for k, v in event.items() if not k.startswith("_")}
 
 
+_MOBILE_CHALLENGES = {"safe", "gyroscope", "touch_id", "face_id", "sms", "email"}
+_WEB_CHALLENGES = {"safe", "captcha", "email", "sms", "second_device"}
+
+
 def test_behavior_mobile_safe_event_returns_low_score(client):
     sample = Path("/Users/aleksandr/Documents/AntiFraud/AntiFraudMLMobile/test1.json")
     if not sample.exists():
@@ -40,7 +44,8 @@ def test_behavior_mobile_safe_event_returns_low_score(client):
     assert response.status_code == 200
     body = response.json()
     assert 0.0 <= body["score"] <= 10.0
-    assert body["decision"] in {"safe", "review", "sms", "biometry"}
+    assert len(body["challenges"]) >= 1
+    assert all(c in _MOBILE_CHALLENGES for c in body["challenges"])
     assert body["latency_ms"] < 1000
 
 
@@ -92,7 +97,7 @@ def test_behavior_openapi_mobile_ml_benign_is_safe_with_bundled_checkpoint(clien
     assert response.status_code == 200
     body = response.json()
     assert body["used_model"] is True
-    assert body["decision"] == "safe"
+    assert body["challenges"] == ["safe"]
     assert body["score"] < 3.0
 
 
@@ -102,5 +107,41 @@ def test_behavior_openapi_web_ml_benign_low_fraud(client):
     assert response.status_code == 200
     body = response.json()
     assert body["used_model"] is True
-    assert body["decision"] == "safe"
+    assert body["challenges"] == ["safe"]
     assert body["score"] < 3.0
+
+
+def test_behavior_web_high_score_returns_web_challenges_only(client):
+    """Web endpoint должен вернуть только web-челленджи (никаких gyroscope/touch_id/face_id)."""
+    event = {
+        "customer_id": 9999,
+        "event_id": 1,
+        "operaton_amt": 250_000,
+        "geo_speed_km_h": 1500,
+        "is_vpn_detected": 1,
+        "session_duration_sec": 60,
+        "os_type": "Windows",
+    }
+    response = client.post("/score/behavior/web", json=event)
+    assert response.status_code == 200
+    body = response.json()
+    assert all(c in _WEB_CHALLENGES for c in body["challenges"])
+    assert all(c not in body["challenges"] for c in {"gyroscope", "touch_id", "face_id"})
+
+
+def test_behavior_mobile_high_score_returns_mobile_challenges_only(client):
+    """Mobile endpoint должен вернуть только mobile-челленджи (никаких captcha/second_device)."""
+    event = {
+        "customer_id": 9998,
+        "event_id": 2,
+        "operaton_amt": 250_000,
+        "geo_speed_km_h": 1500,
+        "is_vpn_detected": 1,
+        "session_duration_sec": 60,
+        "os_type": "Android",
+    }
+    response = client.post("/score/behavior/mobile", json=event)
+    assert response.status_code == 200
+    body = response.json()
+    assert all(c in _MOBILE_CHALLENGES for c in body["challenges"])
+    assert all(c not in body["challenges"] for c in {"captcha", "second_device"})

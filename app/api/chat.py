@@ -6,14 +6,14 @@ from app.api.score_openapi_examples import CHAT_OPENAPI_HIGH_PFRAUD, CHAT_OPENAP
 from app.config import Settings
 from app.deps import get_llm, get_settings
 from app.pipelines.chat.orchestrator import score_chat
-from app.schemas.common import ScoreResponse
+from app.schemas.common import SimpleScoreResponse
 
 router = APIRouter(prefix="/score", tags=["chat"])
 
 
 @router.post(
     "/chat",
-    response_model=ScoreResponse,
+    response_model=SimpleScoreResponse,
     summary="Score chat messages for social-engineering / phishing",
     description=(
         "Pipeline: regex + meta-сигналы → если суммарный вес правил выше порога, "
@@ -45,7 +45,7 @@ async def score_chat_endpoint(
     ),
     settings: Settings = Depends(get_settings),
     llm=Depends(get_llm),
-) -> ScoreResponse:
+) -> SimpleScoreResponse:
     return await score_chat(
         payload=payload,
         threshold=settings.rule_threshold_chat,

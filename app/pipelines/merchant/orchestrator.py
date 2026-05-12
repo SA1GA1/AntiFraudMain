@@ -1,4 +1,4 @@
-"""Merchant pipeline: GET merchant_mock → правила → (опц.) LLM → ScoreResponse."""
+"""Merchant pipeline: GET merchant_mock → правила → (опц.) LLM → SimpleScoreResponse."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from app.core.scoring import combine_rules_and_ml, decision_from_score
 from app.pipelines.merchant.enrich import MerchantClient
 from app.pipelines.merchant.llm import LLMClient, score_merchant_with_llm
 from app.pipelines.merchant.rules import evaluate_merchant
-from app.schemas.common import ScoreResponse
+from app.schemas.common import SimpleScoreResponse
 
 
 async def score_merchant(
@@ -17,12 +17,12 @@ async def score_merchant(
     threshold: float,
     merchant_client: MerchantClient,
     llm: Optional[LLMClient],
-) -> ScoreResponse:
+) -> SimpleScoreResponse:
     started = time.perf_counter()
     record = await merchant_client.fetch(site_name)
     if record is None:
         # Магазин неизвестен — это уже подозрительно (нет вообще данных).
-        return ScoreResponse(
+        return SimpleScoreResponse(
             score=5.0,
             decision=decision_from_score(5.0),
             reasons=[f"merchant:unknown:{site_name}"],
@@ -52,7 +52,7 @@ async def score_merchant(
         reasons.append(f"llm:{llm_reason}")
     reasons.append(f"merchant:domain_age={record.get('domain_age_days')}")
 
-    return ScoreResponse(
+    return SimpleScoreResponse(
         score=final_score,
         decision=decision_from_score(final_score),
         reasons=reasons,

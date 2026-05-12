@@ -4,14 +4,20 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Literal, Optional, Union
 
 import pandas as pd
 
-from app.core.scoring import combine_rules_and_ml, decision_from_score
+from app.core.scoring import (
+    combine_rules_and_ml,
+    mobile_challenges_from_score,
+    web_challenges_from_score,
+)
 from app.ml.loader import ModelBundle
 from app.pipelines.behavior.rules import BehaviorContext, apply_rules
-from app.schemas.common import ScoreResponse
+from app.schemas.common import MobileBehaviorScoreResponse, WebBehaviorScoreResponse
+
+BehaviorScoreResponse = Union[WebBehaviorScoreResponse, MobileBehaviorScoreResponse]
 
 
 @dataclass
@@ -21,7 +27,11 @@ class BehaviorRuntime:
     rule_threshold: float
 
 
-def score_behavior(event: dict, runtime: BehaviorRuntime) -> ScoreResponse:
+def score_behavior(
+    event: dict,
+    runtime: BehaviorRuntime,
+    kind: Literal["web", "mobile"],
+) -> BehaviorScoreResponse:
     started = time.perf_counter()
     ctx = _build_context(event, runtime.history_df)
 
@@ -41,12 +51,22 @@ def score_behavior(event: dict, runtime: BehaviorRuntime) -> ScoreResponse:
     if ml_prob is not None:
         reasons.append(f"ml:p_fraud={ml_prob:.3f}")
 
-    return ScoreResponse(
+    latency_ms = int((time.perf_counter() - started) * 1000)
+
+    if kind == "web":
+        return WebBehaviorScoreResponse(
+            score=final_score,
+            challenges=web_challenges_from_score(final_score),
+            reasons=reasons,
+            used_model=used_model,
+            latency_ms=latency_ms,
+        )
+    return MobileBehaviorScoreResponse(
         score=final_score,
-        decision=decision_from_score(final_score),
+        challenges=mobile_challenges_from_score(final_score),
         reasons=reasons,
         used_model=used_model,
-        latency_ms=int((time.perf_counter() - started) * 1000),
+        latency_ms=latency_ms,
     )
 
 

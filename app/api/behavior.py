@@ -13,9 +13,13 @@ from app.deps import (
     get_loader,
     get_settings,
 )
-from app.pipelines.behavior.orchestrator import BehaviorRuntime, score_behavior
+from app.pipelines.behavior.orchestrator import (
+    BehaviorRuntime,
+    BehaviorScoreResponse,
+    score_behavior,
+)
 from app.schemas.behavior import MobileBehaviorEvent, WebBehaviorEvent
-from app.schemas.common import ScoreResponse
+from app.schemas.common import MobileBehaviorScoreResponse, WebBehaviorScoreResponse
 
 router = APIRouter(prefix="/score", tags=["behavior"])
 _LOGGER = get_logger("api.behavior")
@@ -321,7 +325,7 @@ def _run_pipeline(
     loader,
     history,
     event_sink,
-) -> ScoreResponse:
+) -> BehaviorScoreResponse:
     """Общая обвязка: проверка loader, выбор bundle/history, score, event_sink."""
     if loader is None:
         raise HTTPException(status_code=503, detail="ML loader not initialized")
@@ -334,7 +338,7 @@ def _run_pipeline(
         history_df=history_df,
         rule_threshold=settings.rule_threshold_behavior,
     )
-    response = score_behavior(payload, runtime)
+    response = score_behavior(payload, runtime, kind)
 
     if event_sink is not None:
         try:
@@ -347,7 +351,7 @@ def _run_pipeline(
 
 @router.post(
     "/behavior/web",
-    response_model=ScoreResponse,
+    response_model=WebBehaviorScoreResponse,
     summary="Score web behavioural event",
     description=(
         "Pipeline: rules → fail-fast → PyTorch FraudMLP (web). Тело запроса — "
@@ -386,8 +390,8 @@ async def score_behavior_web_endpoint(
     loader=Depends(get_loader),
     history_web=Depends(get_history_web),
     event_sink=Depends(get_event_sink),
-) -> ScoreResponse:
-    return _run_pipeline(
+) -> WebBehaviorScoreResponse:
+    return _run_pipeline(  # type: ignore[return-value]
         payload=payload.model_dump(),
         kind="web",
         settings=settings,
@@ -399,7 +403,7 @@ async def score_behavior_web_endpoint(
 
 @router.post(
     "/behavior/mobile",
-    response_model=ScoreResponse,
+    response_model=MobileBehaviorScoreResponse,
     summary="Score mobile behavioural event",
     description=(
         "Pipeline: rules → fail-fast → PyTorch FraudMLP (mobile). Тело запроса — "
@@ -435,8 +439,8 @@ async def score_behavior_mobile_endpoint(
     loader=Depends(get_loader),
     history_mobile=Depends(get_history_mobile),
     event_sink=Depends(get_event_sink),
-) -> ScoreResponse:
-    return _run_pipeline(
+) -> MobileBehaviorScoreResponse:
+    return _run_pipeline(  # type: ignore[return-value]
         payload=payload.model_dump(),
         kind="mobile",
         settings=settings,

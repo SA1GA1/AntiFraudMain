@@ -81,7 +81,7 @@ def test_chat_phishing_triggers_llm(client, stub_llm):
     assert response.status_code == 200
     body = response.json()
     assert body["score"] >= 6.0
-    assert body["decision"] in {"sms", "biometry"}
+    assert body["decision"] == "unsafe"
     assert body["used_model"] is True
     assert stub_llm.calls == 1
 

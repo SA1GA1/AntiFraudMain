@@ -1,4 +1,4 @@
-"""Chat pipeline: regex → fail-fast → LLM → ScoreResponse."""
+"""Chat pipeline: regex → fail-fast → LLM → SimpleScoreResponse."""
 
 from __future__ import annotations
 
@@ -8,14 +8,14 @@ from typing import Optional
 from app.core.scoring import combine_rules_and_ml, decision_from_score
 from app.pipelines.chat.filter import score_thread
 from app.pipelines.chat.llm import LLMClient, score_chat_with_llm
-from app.schemas.common import ScoreResponse
+from app.schemas.common import SimpleScoreResponse
 
 
 async def score_chat(
     payload: dict,
     threshold: float,
     llm: Optional[LLMClient],
-) -> ScoreResponse:
+) -> SimpleScoreResponse:
     started = time.perf_counter()
     rules = score_thread(payload)
 
@@ -39,7 +39,7 @@ async def score_chat(
     if llm_reason:
         reasons.append(f"llm:{llm_reason}")
 
-    return ScoreResponse(
+    return SimpleScoreResponse(
         score=final_score,
         decision=decision_from_score(final_score),
         reasons=reasons,
