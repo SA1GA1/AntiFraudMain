@@ -8,19 +8,26 @@ services:
     env_file:
       - .env
     environment:
-      MOBILE_MODEL_PATH: /models/mobile_best.pt
-      WEB_MODEL_PATH: /models/web_best.pt
-      CUSTOMER_HISTORY_PATH: /models/customer_features.parquet
+      FRAUD_MODEL_BACKEND: mlflow
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      FRAUD_ROOT: /fraud
+      FRAUD_BACKEND_RELOAD_TOKEN: ${ADMIN_TOKEN}
       OLLAMA_URL: http://host.docker.internal:11434
       MERCHANT_API_URL: http://merchant_mock:9000
     volumes:
-      - ./models:/models:ro
+      - ${HOME}/fraud:/fraud
       - ./app:/app/app:ro
+      - ./contracts:/app/contracts:ro
       - ./tests:/app/tests:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
-      - merchant_mock
+      mlflow:
+        condition: service_healthy
+      mlflow-seed:
+        condition: service_completed_successfully
+      merchant_mock:
+        condition: service_started
 
   merchant_mock:
     build: ./merchant_mock
@@ -28,3 +35,159 @@ services:
     container_name: antifraud-merchant-mock
     ports:
       - "9000:9000"
+
+  mlflow:
+    build:
+      context: .
+      dockerfile: Dockerfile.mlflow
+    image: antifraud-mlflow:dev
+    container_name: antifraud-mlflow
+    ports:
+      - "5000:5000"
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --artifacts-destination /mlflow/artifacts
+      --serve-artifacts
+      --allowed-hosts '*'
+      --cors-allowed-origins '*'
+    volumes:
+      - mlflow-data:/mlflow
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  mlflow-seed:
+    image: antifraud-mlflow:dev
+    container_name: antifraud-mlflow-seed
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    volumes:
+      - ./models:/models:ro
+    command: python /seed.py
+    restart: "no"
+    depends_on:
+      mlflow:
+        condition: service_healthy
+
+  prefect-db:
+    image: postgres:16-alpine
+    container_name: antifraud-prefect-db
+    environment:
+      POSTGRES_USER: prefect
+      POSTGRES_PASSWORD: prefect
+      POSTGRES_DB: prefect
+    volumes:
+      - prefect-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prefect -d prefect"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  prefect-server:
+    image: prefecthq/prefect:3-latest
+    container_name: antifraud-prefect-server
+    ports:
+      - "4200:4200"
+    environment:
+      PREFECT_SERVER_API_HOST: 0.0.0.0
+      PREFECT_API_DATABASE_CONNECTION_URL: postgresql+asyncpg://prefect:prefect@prefect-db:5432/prefect
+      PREFECT_HOME: /prefect
+    command: prefect server start --host 0.0.0.0
+    volumes:
+      - prefect-data:/prefect
+    depends_on:
+      prefect-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:4200/api/health').read()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 60s
+
+  ml-mobile-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.ml-worker
+    image: antifraud-ml-worker:dev
+    container_name: antifraud-ml-mobile-worker
+    environment:
+      PREFECT_API_URL: http://prefect-server:4200/api
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      FRAUD_ROOT: /fraud
+      FRAUD_BACKEND_RELOAD_URL: http://api:8000/admin/reload-model
+      FRAUD_BACKEND_RELOAD_TOKEN: ${ADMIN_TOKEN}
+      FRAUD_DEPLOYMENT_NAME: nightly-retrain-mobile
+      FRAUD_CRON: "0 4 * * *"
+      FRAUD_CRON_TZ: Europe/Moscow
+      FRAUD_DEPLOYMENT_TAGS: fraud,mobile,daily
+      MLFLOW_EXPERIMENT: fraud_mlp_mobile
+      FRAUD_MODEL_NAME: fraud_mlp_mobile
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - ../AntiFraudMLMobile:/repo
+      - ${HOME}/fraud:/fraud
+      - ./contracts:/repo/contracts:ro
+      - ./scripts/serve_ml_flow.py:/serve_ml_flow.py:ro
+    working_dir: /repo
+    command: python /serve_ml_flow.py
+    # PYTHONPATH=/repo to import orchestration/, trainer/ from the bind-mounted repo
+    depends_on:
+      prefect-server:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
+      api:
+        condition: service_started
+    restart: unless-stopped
+
+  ml-web-worker:
+    image: antifraud-ml-worker:dev
+    container_name: antifraud-ml-web-worker
+    environment:
+      PREFECT_API_URL: http://prefect-server:4200/api
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      FRAUD_ROOT: /fraud
+      FRAUD_BACKEND_RELOAD_URL: http://api:8000/admin/reload-model
+      FRAUD_BACKEND_RELOAD_TOKEN: ${ADMIN_TOKEN}
+      FRAUD_DEPLOYMENT_NAME: nightly-retrain-web
+      FRAUD_CRON: "0 3 * * *"
+      FRAUD_CRON_TZ: Europe/Moscow
+      FRAUD_DEPLOYMENT_TAGS: fraud,web,daily
+      MLFLOW_EXPERIMENT: fraud_mlp_web
+      FRAUD_MODEL_NAME: fraud_mlp_web
+      FRAUD_EVENTS_GLOB: /fraud/events/dt=*/*.parquet
+      FRAUD_LABELS_GLOB: /fraud/labels/dt=*/*.parquet
+      FRAUD_STATE_PATH: /fraud/state/customer_features.state.parquet
+      FRAUD_WORK_DIR: /fraud/work_web
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - ../AntiFraudMLWeb:/repo
+      - ${HOME}/fraud:/fraud
+      - ./contracts:/repo/contracts:ro
+      - ./scripts/serve_ml_flow.py:/serve_ml_flow.py:ro
+    working_dir: /repo
+    command: python /serve_ml_flow.py
+    # PYTHONPATH=/repo to import orchestration/, trainer/ from the bind-mounted repo
+    depends_on:
+      prefect-server:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
+      api:
+        condition: service_started
+      ml-mobile-worker:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  mlflow-data:
+  prefect-data:
+  prefect-db-data:
