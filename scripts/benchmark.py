@@ -17,7 +17,7 @@ import httpx
 
 DEFAULT_BASE = "http://localhost:8000"
 
-BEHAVIOR_PAYLOAD = {
+BEHAVIOR_MOBILE_PAYLOAD = {
     "customer_id": 4242,
     "event_id": 1,
     "event_dttm": "2025-08-09 14:00:00",
@@ -25,6 +25,19 @@ BEHAVIOR_PAYLOAD = {
     "geo_speed_km_h": 30,
     "session_duration_sec": 60,
     "os_type": "Android",
+}
+
+BEHAVIOR_WEB_PAYLOAD = {
+    "customer_id": 4242,
+    "event_id": 1,
+    "event_dttm": "2025-08-09T14:00:00+03:00",
+    "browser_fingerprint": "fp_bench_demo",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124",
+    "browser_name": "Chrome",
+    "os_type": "Windows",
+    "operaton_amt": 1500,
+    "geo_speed_km_h": 30,
+    "session_duration_sec": 60,
 }
 
 CHAT_PAYLOAD = {
@@ -85,7 +98,8 @@ async def main() -> None:
     args = parser.parse_args()
 
     cases = [
-        ("behavior", "/score/behavior", BEHAVIOR_PAYLOAD),
+        ("behavior_mobile", "/score/behavior/mobile", BEHAVIOR_MOBILE_PAYLOAD),
+        ("behavior_web", "/score/behavior/web", BEHAVIOR_WEB_PAYLOAD),
         ("chat", "/score/chat", CHAT_PAYLOAD),
         ("merchant", "/score/merchant", MERCHANT_PAYLOAD),
     ]

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from typing import Literal
+
+from fastapi import APIRouter, Body, Depends, HTTPException
 
 from app.config import Settings
 from app.core.logging import get_logger
@@ -12,7 +14,7 @@ from app.deps import (
     get_settings,
 )
 from app.pipelines.behavior.orchestrator import BehaviorRuntime, score_behavior
-from app.schemas.behavior import is_web_payload
+from app.schemas.behavior import MobileBehaviorEvent, WebBehaviorEvent
 from app.schemas.common import ScoreResponse
 
 router = APIRouter(prefix="/score", tags=["behavior"])
@@ -274,95 +276,47 @@ _MOBILE_ML_BENIGN_OPENAPI_EXAMPLE: dict[str, object] = {
 }
 
 
-@router.post(
-    "/behavior",
-    response_model=ScoreResponse,
-    summary="Score behavioural event (mobile/web)",
-    description=(
-        "Pipeline: rules → fail-fast → PyTorch FraudMLP. "
-        "Discriminator mobile/web — по наличию `browser_fingerprint`/`user_agent` "
-        "или `os_type ∈ {ios, android}`. Любые поля из task.md принимаются "
-        "(`extra=allow`), обязательны только `customer_id` и `event_id`."
-    ),
-)
-async def score_behavior_endpoint(
-    request: Request,
-    payload: dict = Body(
-        ...,
-        openapi_examples={
-            "mobile_clean": {
-                "summary": "Mobile, чистый кейс (доходит до ML)",
-                "value": {
-                    "customer_id": 8888,
-                    "event_id": 2,
-                    "session_id": 8888000001,
-                    "operaton_amt": 1500,
-                    "geo_speed_km_h": 30,
-                    "hour_of_day": 14,
-                    "is_vpn_detected": 0,
-                    "is_proxy_detected": 0,
-                    "session_duration_sec": 60,
-                    "os_type": "Android",
-                    "device_id": "dev_abc",
-                    "is_new_device": 0,
-                },
-            },
-            "mobile_obvious_fraud": {
-                "summary": "Mobile, fail-fast по правилам (VPN+гео-телепорт+сумма)",
-                "value": {
-                    "customer_id": 9999,
-                    "event_id": 1,
-                    "session_id": 9999000001,
-                    "operaton_amt": 250000,
-                    "geo_speed_km_h": 1500,
-                    "is_vpn_detected": 1,
-                    "session_duration_sec": 60,
-                    "os_type": "Android",
-                },
-            },
-            "web_clean": {
-                "summary": "Web, чистый кейс (полный контракт task.md + ML/rules)",
-                "description": (
-                    "Все поля из раздела «веб» task.md, признаки behavior-rules и "
-                    "колонки web-препроцессора. 503 означает, что ML-loader не поднят "
-                    "(см. lifespan / пути к .pt), а не ошибку тела запроса."
-                ),
-                "value": _WEB_CLEAN_OPENAPI_EXAMPLE,
-            },
-            "web_ml_benign": {
-                "summary": "Web, низкий p_fraud (ML: не фрод)",
-                "description": (
-                    "Типичная дневная оплата из браузера после длинной сессии; правила "
-                    "не срабатывают, ответ идёт от web FraudMLP. Значения подогнаны под "
-                    "низкую p_fraud после переобучения web-модели."
-                ),
-                "value": _WEB_ML_BENIGN_OPENAPI_EXAMPLE,
-            },
-            "mobile_ml_benign": {
-                "summary": "Mobile, нейросеть: не фрод (низкий скор)",
-                "description": (
-                    "Кейс «нормальное событие» из tests/fixtures/behavior_mobile_safe.json "
-                    "с полями для behavior-rules. С поставляемым mobile_best.pt обычно "
-                    "used_model=true и decision safe (низкая p_fraud). Веб-чекпоинт "
-                    "web_best.pt в репозитории может давать иной скор — это пример под mobile."
-                ),
-                "value": _MOBILE_ML_BENIGN_OPENAPI_EXAMPLE,
-            },
-        },
-    ),
-    settings: Settings = Depends(get_settings),
-    loader=Depends(get_loader),
-    history_web=Depends(get_history_web),
-    history_mobile=Depends(get_history_mobile),
-    event_sink=Depends(get_event_sink),
+_MOBILE_CLEAN_OPENAPI_EXAMPLE: dict[str, object] = {
+    "customer_id": 8888,
+    "event_id": 2,
+    "session_id": 8888000001,
+    "operaton_amt": 1500,
+    "geo_speed_km_h": 30,
+    "hour_of_day": 14,
+    "is_vpn_detected": 0,
+    "is_proxy_detected": 0,
+    "session_duration_sec": 60,
+    "os_type": "Android",
+    "device_id": "dev_abc",
+    "is_new_device": 0,
+}
+
+_MOBILE_OBVIOUS_FRAUD_OPENAPI_EXAMPLE: dict[str, object] = {
+    "customer_id": 9999,
+    "event_id": 1,
+    "session_id": 9999000001,
+    "operaton_amt": 250000,
+    "geo_speed_km_h": 1500,
+    "is_vpn_detected": 1,
+    "session_duration_sec": 60,
+    "os_type": "Android",
+}
+
+
+def _run_pipeline(
+    *,
+    payload: dict,
+    kind: Literal["web", "mobile"],
+    settings: Settings,
+    loader,
+    history,
+    event_sink,
 ) -> ScoreResponse:
+    """Общая обвязка: проверка loader, выбор bundle/history, score, event_sink."""
     if loader is None:
         raise HTTPException(status_code=503, detail="ML loader not initialized")
 
-    is_web = is_web_payload(payload)
-    kind = "web" if is_web else "mobile"
-    bundle = loader.load_web() if is_web else loader.load_mobile()
-    history = history_web if is_web else history_mobile
+    bundle = loader.load_web() if kind == "web" else loader.load_mobile()
     history_df = history.dataframe if history is not None else None
 
     runtime = BehaviorRuntime(
@@ -379,3 +333,102 @@ async def score_behavior_endpoint(
             _LOGGER.warning("event_sink_enqueue_failed", error=str(exc))
 
     return response
+
+
+@router.post(
+    "/behavior/web",
+    response_model=ScoreResponse,
+    summary="Score web behavioural event",
+    description=(
+        "Pipeline: rules → fail-fast → PyTorch FraudMLP (web). Тело запроса — "
+        "строгая Pydantic-схема `WebBehaviorEvent` с явными типами и полным "
+        "перечнем полей web-препроцессора и поведенческих правил. "
+        "`extra=forbid`: лишние ключи отклоняются с 422. "
+        "503 означает, что ML-loader не поднят (см. lifespan / пути к .pt), "
+        "а не ошибку тела запроса."
+    ),
+)
+async def score_behavior_web_endpoint(
+    payload: WebBehaviorEvent = Body(
+        ...,
+        openapi_examples={
+            "web_clean": {
+                "summary": "Web, чистый кейс (полный контракт task.md + ML/rules)",
+                "description": (
+                    "Все поля из раздела «веб» task.md, признаки behavior-rules и "
+                    "колонки web-препроцессора."
+                ),
+                "value": _WEB_CLEAN_OPENAPI_EXAMPLE,
+            },
+            "web_ml_benign": {
+                "summary": "Web, низкий p_fraud (ML: не фрод)",
+                "description": (
+                    "Типичная дневная оплата из браузера после длинной сессии; правила "
+                    "не срабатывают, ответ идёт от web FraudMLP."
+                ),
+                "value": _WEB_ML_BENIGN_OPENAPI_EXAMPLE,
+            },
+        },
+    ),
+    settings: Settings = Depends(get_settings),
+    loader=Depends(get_loader),
+    history_web=Depends(get_history_web),
+    event_sink=Depends(get_event_sink),
+) -> ScoreResponse:
+    return _run_pipeline(
+        payload=payload.model_dump(),
+        kind="web",
+        settings=settings,
+        loader=loader,
+        history=history_web,
+        event_sink=event_sink,
+    )
+
+
+@router.post(
+    "/behavior/mobile",
+    response_model=ScoreResponse,
+    summary="Score mobile behavioural event",
+    description=(
+        "Pipeline: rules → fail-fast → PyTorch FraudMLP (mobile). Тело запроса — "
+        "строгая Pydantic-схема `MobileBehaviorEvent` с явными типами и полным "
+        "перечнем полей mobile-препроцессора и поведенческих правил. "
+        "`extra=forbid`: лишние ключи отклоняются с 422."
+    ),
+)
+async def score_behavior_mobile_endpoint(
+    payload: MobileBehaviorEvent = Body(
+        ...,
+        openapi_examples={
+            "mobile_clean": {
+                "summary": "Mobile, чистый кейс (доходит до ML)",
+                "value": _MOBILE_CLEAN_OPENAPI_EXAMPLE,
+            },
+            "mobile_obvious_fraud": {
+                "summary": "Mobile, fail-fast по правилам (VPN+гео-телепорт+сумма)",
+                "value": _MOBILE_OBVIOUS_FRAUD_OPENAPI_EXAMPLE,
+            },
+            "mobile_ml_benign": {
+                "summary": "Mobile, нейросеть: не фрод (низкий скор)",
+                "description": (
+                    "Кейс «нормальное событие» из tests/fixtures/behavior_mobile_safe.json "
+                    "с полями для behavior-rules. С поставляемым mobile_best.pt обычно "
+                    "used_model=true и decision safe (низкая p_fraud)."
+                ),
+                "value": _MOBILE_ML_BENIGN_OPENAPI_EXAMPLE,
+            },
+        },
+    ),
+    settings: Settings = Depends(get_settings),
+    loader=Depends(get_loader),
+    history_mobile=Depends(get_history_mobile),
+    event_sink=Depends(get_event_sink),
+) -> ScoreResponse:
+    return _run_pipeline(
+        payload=payload.model_dump(),
+        kind="mobile",
+        settings=settings,
+        loader=loader,
+        history=history_mobile,
+        event_sink=event_sink,
+    )

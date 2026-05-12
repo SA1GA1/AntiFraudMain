@@ -102,7 +102,7 @@ def _measure(client: TestClient, path: str, payload: dict) -> list[float]:
 
 
 def test_behavior_p95_under_sla(client):
-    durations = _measure(client, "/score/behavior", _BEHAVIOR_PAYLOAD)
+    durations = _measure(client, "/score/behavior/mobile", _BEHAVIOR_PAYLOAD)
     p95 = _percentile(durations, 95)
     assert p95 < SLA_MS, f"behavior p95={p95:.1f}ms exceeds SLA {SLA_MS}ms"
 

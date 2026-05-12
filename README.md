@@ -6,7 +6,8 @@
 
 | Endpoint | Pipeline |
 |---|---|
-| `POST /score/behavior` | 7 правил → **если сработали** → fail-fast (без ML) → иначе PyTorch FraudMLP |
+| `POST /score/behavior/web` | 7 правил → **если сработали** → fail-fast → иначе PyTorch FraudMLP (web). Тело — строгая `WebBehaviorEvent` |
+| `POST /score/behavior/mobile` | 7 правил → **если сработали** → fail-fast → иначе PyTorch FraudMLP (mobile). Тело — строгая `MobileBehaviorEvent` |
 | `POST /score/chat`     | regex-фильтр + сигналы из `counterparty_metadata` → если триггер → локальная LLM (Ollama) |
 | `POST /score/merchant` | `GET merchant_mock/{site}` → правила (домен, отзывы, ИНН) → LLM по карточке + отзывам |
 | `POST /admin/reload-model` | Bearer-auth swap активной модели (и `customer_features`) — для daily-retrain pipeline'а |
@@ -22,13 +23,13 @@ app/
 ├── config.py             pydantic-settings (env) — включая FRAUD_ROOT, FRAUD_MODEL_BACKEND, MLFLOW_TRACKING_URI
 ├── deps.py               DI: Runtime, get_loader, get_history_{web,mobile}, get_event_sink, get_llm, get_merchant
 ├── api/
-│   ├── behavior.py       POST /score/behavior + fire-and-forget hook в EventSink
+│   ├── behavior.py       POST /score/behavior/{web,mobile} + fire-and-forget hook в EventSink
 │   ├── chat.py           POST /score/chat
 │   ├── merchant.py       POST /score/merchant
 │   └── admin.py          POST /admin/reload-model, POST /admin/labels-batch (Bearer auth)
 ├── schemas/
 │   ├── common.py         ScoreResponse, ReloadModelRequest/Response, LabelRow, LabelsBatchResponse
-│   └── behavior.py       MobileBehaviorEvent / WebBehaviorEvent (extra="allow")
+│   └── behavior.py       MobileBehaviorEvent / WebBehaviorEvent (строгие, extra="forbid")
 ├── pipelines/
 │   ├── behavior/         rules.py (7 правил), orchestrator.py
 │   ├── chat/             patterns.py (regex), filter.py, llm.py, orchestrator.py
@@ -81,9 +82,12 @@ curl -X POST http://localhost:8000/score/merchant \
   -H 'content-type: application/json' \
   -d @tests/fixtures/merchant_fraud.json
 
-curl -X POST http://localhost:8000/score/behavior \
+curl -X POST http://localhost:8000/score/behavior/mobile \
   -H 'content-type: application/json' \
   -d @tests/fixtures/behavior_mobile_fraud.json
+
+# Веб-пример проще всего скопировать из Swagger: `web_clean` /
+# `web_ml_benign` в `POST /score/behavior/web`.
 
 curl -X POST http://localhost:8000/score/chat \
   -H 'content-type: application/json' \
@@ -106,9 +110,10 @@ pytest -v
 
 ```bash
 python scripts/benchmark.py --base http://localhost:8000 --n 200
-# behavior: p50= 42ms p95=120ms p99=180ms
-# chat:     p50= 38ms p95=110ms p99=170ms
-# merchant: p50= 45ms p95=130ms p99=210ms
+# behavior_mobile: p50= 42ms p95=120ms p99=180ms
+# behavior_web:    p50= 44ms p95=125ms p99=185ms
+# chat:            p50= 38ms p95=110ms p99=170ms
+# merchant:        p50= 45ms p95=130ms p99=210ms
 ```
 
 ## Контракт ответа `/score/*`
@@ -166,7 +171,7 @@ python scripts/benchmark.py --base http://localhost:8000 --n 200
 
 ## Event sink (daily-retrain pipeline)
 
-После успешного `/score/behavior` payload **fire-and-forget** пишется в `~/fraud/events/dt=YYYY-MM-DD/` (web) или `~/fraud/events_mobile/...` (mobile). Батч флашится по `EVENT_SINK_BATCH_SIZE=1000` событий или `EVENT_SINK_FLUSH_SECS=60`, какое раньше. Падение FS не валит endpoint — только лог.
+После успешного `/score/behavior/web` и `/score/behavior/mobile` payload **fire-and-forget** пишется в `~/fraud/events/dt=YYYY-MM-DD/` (web) или `~/fraud/events_mobile/...` (mobile). Батч флашится по `EVENT_SINK_BATCH_SIZE=1000` событий или `EVENT_SINK_FLUSH_SECS=60`, какое раньше. Падение FS не валит endpoint — только лог.
 
 Этот sink — источник партиций для `daily_flow` в `../AntiFraudML{Web,Mobile}/`.
 

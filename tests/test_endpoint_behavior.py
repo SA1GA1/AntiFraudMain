@@ -36,7 +36,7 @@ def test_behavior_mobile_safe_event_returns_low_score(client):
     if not sample.exists():
         pytest.skip("Mobile test1.json not found")
     event = _load_event(sample)
-    response = client.post("/score/behavior", json=event)
+    response = client.post("/score/behavior/mobile", json=event)
     assert response.status_code == 200
     body = response.json()
     assert 0.0 <= body["score"] <= 10.0
@@ -55,7 +55,7 @@ def test_behavior_obvious_fraud_short_circuits_via_rules(client):
         "session_duration_sec": 60,
         "os_type": "Android",
     }
-    response = client.post("/score/behavior", json=event)
+    response = client.post("/score/behavior/mobile", json=event)
     assert response.status_code == 200
     body = response.json()
     assert body["score"] >= 6.0
@@ -79,7 +79,7 @@ def test_behavior_clean_event_falls_through_to_ml(client):
         "session_duration_sec": 60,
         "os_type": "Android",
     }
-    response = client.post("/score/behavior", json=event)
+    response = client.post("/score/behavior/mobile", json=event)
     assert response.status_code == 200
     body = response.json()
     assert body["used_model"] is True
@@ -88,7 +88,7 @@ def test_behavior_clean_event_falls_through_to_ml(client):
 
 def test_behavior_openapi_mobile_ml_benign_is_safe_with_bundled_checkpoint(client):
     """Синхрон с примером mobile_ml_benign в Swagger: ML вызывается и скор «не фрод»."""
-    response = client.post("/score/behavior", json=_MOBILE_ML_BENIGN_OPENAPI_EXAMPLE)
+    response = client.post("/score/behavior/mobile", json=_MOBILE_ML_BENIGN_OPENAPI_EXAMPLE)
     assert response.status_code == 200
     body = response.json()
     assert body["used_model"] is True
@@ -98,7 +98,7 @@ def test_behavior_openapi_mobile_ml_benign_is_safe_with_bundled_checkpoint(clien
 
 def test_behavior_openapi_web_ml_benign_low_fraud(client):
     """Синхрон с примером web_ml_benign в Swagger: web FraudMLP с низкой p_fraud."""
-    response = client.post("/score/behavior", json=_WEB_ML_BENIGN_OPENAPI_EXAMPLE)
+    response = client.post("/score/behavior/web", json=_WEB_ML_BENIGN_OPENAPI_EXAMPLE)
     assert response.status_code == 200
     body = response.json()
     assert body["used_model"] is True
