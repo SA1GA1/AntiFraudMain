@@ -10,9 +10,38 @@ from app.schemas.common import ScoreResponse
 router = APIRouter(prefix="/score", tags=["merchant"])
 
 
-@router.post("/merchant", response_model=ScoreResponse)
+@router.post(
+    "/merchant",
+    response_model=ScoreResponse,
+    summary="Score merchant / online store by name or domain",
+    description=(
+        "Pipeline: GET в merchant_mock → правила → если сработали ИЛИ домен молодой, "
+        "зовётся LLM с карточкой магазина и отзывами. Принимает `site_name` или "
+        "`merchant_name` (любое из двух)."
+    ),
+)
 async def score_merchant_endpoint(
-    payload: dict = Body(...),
+    payload: dict = Body(
+        ...,
+        openapi_examples={
+            "known_legit": {
+                "summary": "Известный легитимный магазин (правила чистые, LLM не вызывается)",
+                "value": {"site_name": "ozon.ru"},
+            },
+            "young_suspicious_tld": {
+                "summary": "Молодой домен на подозрительном TLD",
+                "value": {"site_name": "shop-cards-deal.cc"},
+            },
+            "known_fraud": {
+                "summary": "Заранее известный фрод-сайт (триггерит LLM)",
+                "value": {"site_name": "fast-pay-service.ru"},
+            },
+            "unknown": {
+                "summary": "Незнакомый магазин",
+                "value": {"site_name": "totally-unknown.xyz"},
+            },
+        },
+    ),
     settings: Settings = Depends(get_settings),
     merchant=Depends(get_merchant),
     llm=Depends(get_llm),
