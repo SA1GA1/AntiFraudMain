@@ -291,16 +291,26 @@ _MOBILE_CLEAN_OPENAPI_EXAMPLE: dict[str, object] = {
     "is_new_device": 0,
 }
 
-_MOBILE_OBVIOUS_FRAUD_OPENAPI_EXAMPLE: dict[str, object] = {
-    "customer_id": 9999,
-    "event_id": 1,
-    "session_id": 9999000001,
-    "operaton_amt": 250000,
-    "geo_speed_km_h": 1500,
-    "is_vpn_detected": 1,
-    "session_duration_sec": 60,
-    "os_type": "Android",
-}
+# Полные JSON для Swagger: `model_dump` после валидации — все поля схемы, без пропусков.
+_WEB_OPENAPI_LOW_PFRAUD = WebBehaviorEvent.model_validate(
+    _WEB_ML_BENIGN_OPENAPI_EXAMPLE
+).model_dump(mode="json")
+_WEB_OPENAPI_HIGH_PFRAUD = WebBehaviorEvent.model_validate(
+    _WEB_CLEAN_OPENAPI_EXAMPLE
+).model_dump(mode="json")
+_MOBILE_OPENAPI_LOW_PFRAUD = MobileBehaviorEvent.model_validate(
+    _MOBILE_ML_BENIGN_OPENAPI_EXAMPLE
+).model_dump(mode="json")
+_MOBILE_OPENAPI_HIGH_PFRAUD = MobileBehaviorEvent.model_validate(
+    {
+        **MobileBehaviorEvent(
+            customer_id=8888,
+            event_id=2,
+            os_type="Android",
+        ).model_dump(),
+        **_MOBILE_CLEAN_OPENAPI_EXAMPLE,
+    }
+).model_dump(mode="json")
 
 
 def _run_pipeline(
@@ -352,21 +362,23 @@ async def score_behavior_web_endpoint(
     payload: WebBehaviorEvent = Body(
         ...,
         openapi_examples={
-            "web_clean": {
-                "summary": "Web, чистый кейс (полный контракт task.md + ML/rules)",
+            "web_low_p_fraud": {
+                "summary": "Web — низкий p_fraud (все поля WebBehaviorEvent)",
                 "description": (
-                    "Все поля из раздела «веб» task.md, признаки behavior-rules и "
-                    "колонки web-препроцессора."
+                    "Полное тело после `WebBehaviorEvent.model_dump`: низкая вероятность "
+                    "фрода у web FraudMLP при типичной дневной оплате (правила обычно не "
+                    "срабатывают, `used_model=true`)."
                 ),
-                "value": _WEB_CLEAN_OPENAPI_EXAMPLE,
+                "value": _WEB_OPENAPI_LOW_PFRAUD,
             },
-            "web_ml_benign": {
-                "summary": "Web, низкий p_fraud (ML: не фрод)",
+            "web_high_p_fraud": {
+                "summary": "Web — высокий p_fraud (все поля WebBehaviorEvent)",
                 "description": (
-                    "Типичная дневная оплата из браузера после длинной сессии; правила "
-                    "не срабатывают, ответ идёт от web FraudMLP."
+                    "Полный контракт с «тяжёлыми» сигналами для web FraudMLP: ожидается "
+                    "высокая p_fraud и высокий итоговый скор при `used_model=true` "
+                    "(зависит от чекпоинта `web_best.pt`)."
                 ),
-                "value": _WEB_ML_BENIGN_OPENAPI_EXAMPLE,
+                "value": _WEB_OPENAPI_HIGH_PFRAUD,
             },
         },
     ),
@@ -400,22 +412,22 @@ async def score_behavior_mobile_endpoint(
     payload: MobileBehaviorEvent = Body(
         ...,
         openapi_examples={
-            "mobile_clean": {
-                "summary": "Mobile, чистый кейс (доходит до ML)",
-                "value": _MOBILE_CLEAN_OPENAPI_EXAMPLE,
-            },
-            "mobile_obvious_fraud": {
-                "summary": "Mobile, fail-fast по правилам (VPN+гео-телепорт+сумма)",
-                "value": _MOBILE_OBVIOUS_FRAUD_OPENAPI_EXAMPLE,
-            },
-            "mobile_ml_benign": {
-                "summary": "Mobile, нейросеть: не фрод (низкий скор)",
+            "mobile_low_p_fraud": {
+                "summary": "Mobile — низкий p_fraud (все поля MobileBehaviorEvent)",
                 "description": (
-                    "Кейс «нормальное событие» из tests/fixtures/behavior_mobile_safe.json "
-                    "с полями для behavior-rules. С поставляемым mobile_best.pt обычно "
-                    "used_model=true и decision safe (низкая p_fraud)."
+                    "Полное тело после валидации схемы: типичное легитимное событие, "
+                    "низкая p_fraud у mobile FraudMLP (`used_model=true`)."
                 ),
-                "value": _MOBILE_ML_BENIGN_OPENAPI_EXAMPLE,
+                "value": _MOBILE_OPENAPI_LOW_PFRAUD,
+            },
+            "mobile_high_p_fraud": {
+                "summary": "Mobile — высокий p_fraud (все поля MobileBehaviorEvent)",
+                "description": (
+                    "Те же поля с «подозрительным» профилем (короткая сессия, без истории "
+                    "аттестации и т.д.): высокая p_fraud у mobile FraudMLP при "
+                    "`used_model=true` (зависит от `mobile_best.pt`)."
+                ),
+                "value": _MOBILE_OPENAPI_HIGH_PFRAUD,
             },
         },
     ),

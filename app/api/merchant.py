@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Body, Depends
 
+from app.api.score_openapi_examples import MERCHANT_OPENAPI_HIGH_PFRAUD, MERCHANT_OPENAPI_LOW_PFRAUD
 from app.config import Settings
 from app.deps import get_llm, get_merchant, get_settings
 from app.pipelines.merchant.orchestrator import score_merchant
@@ -24,21 +25,21 @@ async def score_merchant_endpoint(
     payload: dict = Body(
         ...,
         openapi_examples={
-            "known_legit": {
-                "summary": "Известный легитимный магазин (правила чистые, LLM не вызывается)",
-                "value": {"site_name": "ozon.ru"},
+            "merchant_low_p_fraud": {
+                "summary": "Merchant — низкий p_fraud (полная карточка)",
+                "description": (
+                    "Полный JSON как в task.md: `site_name`/`merchant_name`, реквизиты, "
+                    "отзывы. Инференс использует `site_name` для mock; лишние поля не мешают."
+                ),
+                "value": MERCHANT_OPENAPI_LOW_PFRAUD,
             },
-            "young_suspicious_tld": {
-                "summary": "Молодой домен на подозрительном TLD",
-                "value": {"site_name": "shop-cards-deal.cc"},
-            },
-            "known_fraud": {
-                "summary": "Заранее известный фрод-сайт (триггерит LLM)",
-                "value": {"site_name": "fast-pay-service.ru"},
-            },
-            "unknown": {
-                "summary": "Незнакомый магазин",
-                "value": {"site_name": "totally-unknown.xyz"},
+            "merchant_high_p_fraud": {
+                "summary": "Merchant — высокий p_fraud (полная карточка)",
+                "description": (
+                    "Известный фрод-домен из seed + негативные отзывы; правила и/или LLM "
+                    "дают высокий скор (зависит от mock и модели)."
+                ),
+                "value": MERCHANT_OPENAPI_HIGH_PFRAUD,
             },
         },
     ),

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Body, Depends
 
+from app.api.score_openapi_examples import CHAT_OPENAPI_HIGH_PFRAUD, CHAT_OPENAPI_LOW_PFRAUD
 from app.config import Settings
 from app.deps import get_llm, get_settings
 from app.pipelines.chat.orchestrator import score_chat
@@ -24,51 +25,21 @@ async def score_chat_endpoint(
     payload: dict = Body(
         ...,
         openapi_examples={
-            "phishing": {
-                "summary": "Фишинг — социнженерия + подозрительная ссылка",
-                "value": {
-                    "counterparty_metadata": {
-                        "user_id": "usr_8492",
-                        "verification_status": "unverified",
-                        "account_age_days": 3,
-                        "geo_location": "KZ-ALA",
-                        "geo_mismatch": True,
-                        "kyc_level": "none",
-                    },
-                    "messages": [
-                        {
-                            "sender_id": "usr_8492",
-                            "receiver_id": "usr_1057",
-                            "message_text": (
-                                "Здравствуйте! Это служба безопасности банка. "
-                                "Ваш счёт под угрозой. Срочно переведите средства "
-                                "на безопасный кошелёк: "
-                                "https://sber-bank-secure.ru/verify"
-                            ),
-                            "timestamp": "2024-05-20T14:30:00Z",
-                        }
-                    ],
-                },
+            "chat_low_p_fraud": {
+                "summary": "Chat — низкий p_fraud (все поля контракта)",
+                "description": (
+                    "Полный `counterparty_metadata` (включая geo) и два сообщения с "
+                    "нормальным тоном; regex/meta дают малый вес, LLM часто не вызывается."
+                ),
+                "value": CHAT_OPENAPI_LOW_PFRAUD,
             },
-            "clean": {
-                "summary": "Безобидная переписка",
-                "value": {
-                    "counterparty_metadata": {
-                        "user_id": "usr_friend",
-                        "verification_status": "verified",
-                        "account_age_days": 1500,
-                        "geo_mismatch": False,
-                        "kyc_level": "full",
-                    },
-                    "messages": [
-                        {
-                            "sender_id": "usr_friend",
-                            "receiver_id": "usr_1057",
-                            "message_text": "Привет! Когда увидимся?",
-                            "timestamp": "2024-05-20T14:30:00Z",
-                        }
-                    ],
-                },
+            "chat_high_p_fraud": {
+                "summary": "Chat — высокий p_fraud (все поля контракта)",
+                "description": (
+                    "Новый непроверенный контрагент + ссылки и давление в тексте; "
+                    "суммарный вес правил выше порога → LLM (если доступна) с высоким скором."
+                ),
+                "value": CHAT_OPENAPI_HIGH_PFRAUD,
             },
         },
     ),

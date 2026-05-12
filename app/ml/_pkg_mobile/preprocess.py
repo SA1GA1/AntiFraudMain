@@ -126,11 +126,30 @@ def _prepare_event_columns(df: pd.DataFrame) -> pd.DataFrame:
             out[c] = pd.to_numeric(out[c], errors="coerce").astype(np.float32)
         else:
             out[c] = np.float32(0.0)
-    # Временные категориальные
-    if "event_dttm" in out.columns:
-        out = pd.concat([out, _temporal_categoricals(out["event_dttm"])], axis=1)
-    else:
+    # Временные категориальные: как в web-препроцессоре — не concat'ить целиком,
+    # иначе при event_dttm=null из model_dump() дублируются hour_of_day/day_of_week
+    # и ev["hour_of_day"] становится DataFrame → TypeError в transform_events.
+    has_h = "hour_of_day" in out.columns and out["hour_of_day"].notna().any()
+    has_d = "day_of_week" in out.columns and out["day_of_week"].notna().any()
+    if has_h:
+        out["hour_of_day"] = (
+            pd.to_numeric(out["hour_of_day"], errors="coerce")
+            .fillna(12).astype(np.int16).astype(str)
+        )
+    if has_d:
+        out["day_of_week"] = (
+            pd.to_numeric(out["day_of_week"], errors="coerce")
+            .fillna(0).astype(np.int16).astype(str)
+        )
+    if (not has_h or not has_d) and "event_dttm" in out.columns:
+        derived = _temporal_categoricals(out["event_dttm"])
+        if not has_h:
+            out["hour_of_day"] = derived["hour_of_day"]
+        if not has_d:
+            out["day_of_week"] = derived["day_of_week"]
+    if "hour_of_day" not in out.columns:
         out["hour_of_day"] = "12"
+    if "day_of_week" not in out.columns:
         out["day_of_week"] = "0"
     # Все категориальные приводим к строкам
     for c in CATEGORICAL_COLS:
