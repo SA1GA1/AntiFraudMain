@@ -6,7 +6,7 @@ from app.api.score_openapi_examples import MERCHANT_OPENAPI_HIGH_PFRAUD, MERCHAN
 from app.config import Settings
 from app.deps import get_llm, get_merchant, get_settings
 from app.pipelines.merchant.orchestrator import score_merchant
-from app.schemas.common import ScoreResponse
+from app.schemas.common import MerchantScoreRequest, ScoreResponse
 
 router = APIRouter(prefix="/score", tags=["merchant"])
 
@@ -17,27 +17,28 @@ router = APIRouter(prefix="/score", tags=["merchant"])
     summary="Score merchant / online store by name or domain",
     description=(
         "Pipeline: GET в merchant_mock → правила → если сработали ИЛИ домен молодой, "
-        "зовётся LLM с карточкой магазина и отзывами. Принимает `site_name` или "
-        "`merchant_name` (любое из двух)."
+        "зовётся LLM с карточкой магазина и отзывами. Принимает только `site_name` или "
+        "`merchant_name`; отзывы и прочие реквизиты НЕ принимаются — они берутся из "
+        "merchant_mock по `site_name`."
     ),
 )
 async def score_merchant_endpoint(
-    payload: dict = Body(
+    payload: MerchantScoreRequest = Body(
         ...,
         openapi_examples={
             "merchant_low_p_fraud": {
-                "summary": "Merchant — низкий p_fraud (полная карточка)",
+                "summary": "Merchant — низкий p_fraud",
                 "description": (
-                    "Полный JSON как в task.md: `site_name`/`merchant_name`, реквизиты, "
-                    "отзывы. Инференс использует `site_name` для mock; лишние поля не мешают."
+                    "Запрос содержит только идентификатор магазина; карточка и "
+                    "отзывы будут получены из merchant_mock."
                 ),
                 "value": MERCHANT_OPENAPI_LOW_PFRAUD,
             },
             "merchant_high_p_fraud": {
-                "summary": "Merchant — высокий p_fraud (полная карточка)",
+                "summary": "Merchant — высокий p_fraud",
                 "description": (
-                    "Известный фрод-домен из seed + негативные отзывы; правила и/или LLM "
-                    "дают высокий скор (зависит от mock и модели)."
+                    "Известный фрод-домен из seed; правила и/или LLM дают высокий "
+                    "скор по карточке из merchant_mock."
                 ),
                 "value": MERCHANT_OPENAPI_HIGH_PFRAUD,
             },
@@ -47,7 +48,7 @@ async def score_merchant_endpoint(
     merchant=Depends(get_merchant),
     llm=Depends(get_llm),
 ) -> ScoreResponse:
-    site_name = payload.get("site_name") or payload.get("merchant_name") or ""
+    site_name = payload.site_name or payload.merchant_name or ""
     return await score_merchant(
         site_name=str(site_name),
         threshold=settings.rule_threshold_merchant,

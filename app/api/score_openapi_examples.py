@@ -61,38 +61,14 @@ CHAT_OPENAPI_HIGH_PFRAUD: dict[str, object] = {
     ],
 }
 
-# ── Merchant: полная карточка как в task.md (лишние поля в теле допустимы). ──
+# ── Merchant: только идентификатор магазина; карточка и отзывы — из merchant_mock. ──
 
 MERCHANT_OPENAPI_LOW_PFRAUD: dict[str, object] = {
     "site_name": "ozon.ru",
     "merchant_name": "ozon.ru",
-    "registration_date": "2000-04-23",
-    "domain_age_days": 9100,
-    "owner_name": "ООО Интернет Решения",
-    "admin_contact": "support@ozon.ru",
-    "inn": "7704217370",
-    "server_ip": "176.99.10.10",
-    "reviews": [
-        {"rating": 5, "text": "Привезли вовремя, упаковка целая."},
-        {"rating": 4, "text": "Нормальный маркетплейс, пользуюсь годами."},
-        {"rating": 5, "text": "Возврат без проблем, поддержка ответила быстро."},
-        {"rating": 5, "text": "Широкий выбор, акции адекватные."},
-    ],
 }
 
 MERCHANT_OPENAPI_HIGH_PFRAUD: dict[str, object] = {
     "site_name": "fast-pay-service.ru",
     "merchant_name": "fast-pay-service.ru",
-    "registration_date": "2024-01-10",
-    "domain_age_days": 120,
-    "owner_name": "ИП Петров А.А.",
-    "admin_contact": "info@fast-pay-service.ru",
-    "inn": "771234567890",
-    "server_ip": "45.132.67.89",
-    "reviews": [
-        {"rating": 5, "text": "хорошо"},
-        {"rating": 5, "text": "норм"},
-        {"rating": 1, "text": "Мошенники, не пришел товар, деньги не вернули!"},
-        {"rating": 1, "text": "Обман, фишинговый сайт, украли данные карты."},
-    ],
 }

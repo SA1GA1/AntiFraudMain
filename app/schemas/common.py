@@ -2,9 +2,29 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 Decision = Literal["safe", "review", "sms", "biometry"]
+
+
+class MerchantScoreRequest(BaseModel):
+    """Тело запроса `/score/merchant`.
+
+    Отзывы (`reviews`) и прочая enrichment-карточка магазина (домен, ИНН,
+    регистрация, IP) НЕ принимаются от клиента — они подтягиваются
+    бэкендом из `merchant_mock` по `site_name`/`merchant_name`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    site_name: Optional[str] = Field(
+        default=None,
+        description="Доменное имя магазина, по которому идёт lookup в merchant_mock.",
+    )
+    merchant_name: Optional[str] = Field(
+        default=None,
+        description="Альтернативное имя получателя платежа (используется, если site_name пуст).",
+    )
 
 
 class ScoreResponse(BaseModel):
