@@ -50,6 +50,40 @@ def fake_mlflow_artifact_tree(tmp_path: Path, request):
     return kind, tmp_path, model_dir
 
 
+@pytest.fixture
+def mlflow3_artifact_tree(tmp_path: Path, request):
+    """Mimic real MLflow 3.x pyfunc.log_model layout: original basenames are
+    preserved on disk (`artifacts/best.pt`, `artifacts/customer_features.parquet`),
+    and the key→path mapping lives in MLmodel YAML."""
+    kind: Kind = request.param
+    ck = _real_checkpoint(kind)
+    if ck is None:
+        pytest.skip(f"no {kind} checkpoint in ./models — cannot exercise loader")
+
+    model_dir = tmp_path / "model"
+    artifacts_dir = model_dir / "artifacts"
+    artifacts_dir.mkdir(parents=True)
+    shutil.copy(ck, artifacts_dir / "best.pt")
+
+    hist = pd.DataFrame({"customer_id": [1, 2], "amt_mean": [100.0, 200.0]})
+    hist.to_parquet(artifacts_dir / "customer_features.parquet")
+
+    (model_dir / "MLmodel").write_text(
+        "artifact_path: model\n"
+        "flavors:\n"
+        "  python_function:\n"
+        "    artifacts:\n"
+        "      checkpoint:\n"
+        "        path: artifacts/best.pt\n"
+        "        uri: runs:/abc/model/artifacts/best.pt\n"
+        "      customer_features:\n"
+        "        path: artifacts/customer_features.parquet\n"
+        "        uri: runs:/abc/model/artifacts/customer_features.parquet\n"
+    )
+
+    return kind, tmp_path, model_dir
+
+
 def _mock_mlflow_client(version: int = 1, run_id: str = "abc123"):
     mv = MagicMock()
     mv.version = str(version)
@@ -92,6 +126,31 @@ def test_loader_pulls_production_version(fake_mlflow_artifact_tree, monkeypatch)
     client.get_latest_versions.assert_called_once()
     args, kwargs = client.get_latest_versions.call_args
     assert kwargs.get("stages") == ["Production"] or "Production" in (args[1] if len(args) > 1 else [])
+
+
+@pytest.mark.parametrize("mlflow3_artifact_tree", ["web", "mobile"], indirect=True)
+def test_loader_resolves_mlflow3_layout_via_mlmodel(mlflow3_artifact_tree, monkeypatch):
+    """Regression: real MLflow 3.x layout keeps original basenames on disk;
+    the checkpoint→path mapping lives in MLmodel YAML, not in the filename."""
+    kind, root, model_dir = mlflow3_artifact_tree
+    from app.ml import mlflow_loader as ml_mod
+
+    client, mv = _mock_mlflow_client(version=11)
+
+    def fake_download(run_id, artifact_path, dst_path):
+        target = Path(dst_path) / artifact_path
+        if not target.exists():
+            shutil.copytree(model_dir, target)
+        return str(target)
+
+    monkeypatch.setattr(ml_mod, "_LOGGER", MagicMock())
+    loader = ml_mod.MlflowLoader(tracking_uri="file:///tmp/mlruns", client=client)
+    monkeypatch.setattr(loader._mlflow.artifacts, "download_artifacts", fake_download)
+
+    result = loader.reload(kind)
+    assert result.version == 11
+    assert result.bundle.model is not None
+    assert result.history_df is not None
 
 
 def test_loader_raises_when_no_production_version():

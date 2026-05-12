@@ -48,7 +48,33 @@ def _model_name(kind: Kind) -> str:
 
 
 def _find_artifact(root: Path, key: str) -> Optional[Path]:
-    """Locate an MLFlow artifact file by key, tolerating layout variations."""
+    """Locate an MLFlow artifact file by key, tolerating layout variations.
+
+    MLflow 3.x preserves the original basename on disk (e.g. ``artifacts/best.pt``)
+    and records the canonical ``key → relative_path`` mapping in ``MLmodel``. Older
+    layouts renamed the file to the key itself (``artifacts/checkpoint``). We try
+    the MLmodel mapping first, then fall back to historical filename probes.
+    """
+    mlmodel = root / "MLmodel"
+    if mlmodel.is_file():
+        try:
+            import yaml  # transitive dep of mlflow
+
+            meta = yaml.safe_load(mlmodel.read_text()) or {}
+            mapped = (
+                meta.get("flavors", {})
+                .get("python_function", {})
+                .get("artifacts", {})
+                .get(key, {})
+                .get("path")
+            )
+            if mapped:
+                candidate = root / mapped
+                if candidate.is_file():
+                    return candidate
+        except Exception:
+            pass  # fall through to legacy probes
+
     candidates = [
         root / "artifacts" / key,
         root / key,
