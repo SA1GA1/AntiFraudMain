@@ -4,10 +4,16 @@
 > для интеграции с retrain pipeline — в `todo.md`. Этот файл — конспект
 > по отдельному треку schema gap'а.
 
-Конспект отдельного трека, не связанного напрямую с MLOps-планом
-(`AntiFraudMLWeb/update.md`). Сюда вынесена проблема рассинхрона схем
-между тем, что валидирует `AntiFraudMain`, и тем, что ждёт
-`AntiFraudMLWeb/trainer` для обучения.
+Конспект отдельного трека: рассинхрон схем между тем, что валидирует
+`AntiFraudMain`, и тем, что ждёт `AntiFraudMLWeb/trainer` и
+`AntiFraudMLMobile/trainer` для обучения.
+
+---
+
+## Статус: best-effort реализован, strict отложен
+
+Решение из секции 4 («best-effort на bootstrap, мигрируем на гибрид
+позже») **реализовано**. Подробности в секциях 7–8.
 
 ---
 
@@ -15,8 +21,8 @@
 
 ### 1.1 Что валидирует backend
 
-`app/schemas/behavior.py` описывает три типа событий через
-`pydantic.BaseModel` с `model_config = ConfigDict(extra="allow")`.
+`app/schemas/behavior.py` описывает события через `pydantic.BaseModel` с
+`model_config = ConfigDict(extra="allow")`.
 
 **`_BaseEvent`** (общая часть, 10 полей):
 
@@ -26,44 +32,41 @@ day_of_week, is_vpn_detected, is_proxy_detected, geo_speed_km_h,
 session_duration_sec, transfers_count_last_10min
 ```
 
-**`WebBehaviorEvent` добавляет 5 полей:**
+**`WebBehaviorEvent`** добавляет 5 полей:
 
 ```
 browser_fingerprint, user_agent, is_tor_detected, is_new_browser,
 is_new_device
 ```
 
-**`MobileBehaviorEvent` добавляет 3 поля:**
+**`MobileBehaviorEvent`** добавляет 3 поля:
 
 ```
 os_type, device_id, is_new_device
 ```
 
-Итого web-payload **строго** валидирует **16 полей**, всё остальное
-проваливается через `extra="allow"` и доступно как ключи словаря
+Итого web-payload **строго** валидирует **16 полей** в pydantic, всё
+остальное проходит через `extra="allow"` и доступно как ключи словаря
 без типизации, диапазонной проверки, defaults.
 
-### 1.2 Что в task.md / ждёт trainer
+### 1.2 Что ждёт trainer (canonical)
 
-`AntiFraudMLWeb` обучается на **71 поле** (см. `AntiFraudMLWeb/task.md` и
-`AntiFraudMLWeb/CLAUDE.md` раздел «71 колонка task.md»). Из них trainer
-использует:
+Источник правды теперь — `contracts/event_schema_{web,mobile}.py`
+(см. секцию 7). Списки колонок зеркалят `trainer/preprocess.py` обоих
+ML-репо:
 
-- **19 категориальных** — `browser_name`, `browser_version`, `os_type`,
-  `os_version`, `screen_resolution`, `system_language`, `browser_language`,
-  `accept_language`, `merchant_name`, `transaction_type`,
-  `connection_type`, `isp_name`, `webgl_vendor`, `login_method`,
-  `currency_iso_cd`, `mcc_code`, `pos_cd`, `hour_of_day`, `day_of_week`.
-- **44 числовых** — `operaton_amt`, флаги `is_*`, mouse/keyboard биометрия,
-  click/scroll/form-метрики, network-RTT, login-trust, fingerprint-числа.
+- **Web (66 полей):** 3 identity + 44 numeric + 19 categorical.
+- **Mobile (67 полей):** 3 identity + 37 numeric + 27 categorical.
+
+Подробности — `AntiFraudMLWeb/trainer/preprocess.py:17–69` и
+`AntiFraudMLMobile/trainer/preprocess.py:17–75`.
 
 ## 2. Где зияет дыра
 
-Сравнение полей `WebBehaviorEvent` (16 валидируемых) и task.md (71) даёт
-**55 полей**, которые backend сейчас не описывает в Pydantic-схеме и **с
-большой вероятностью не приходят с фронта совсем**:
+Pydantic-схема валидирует 16 полей, contracts/canonical — 66/67. Дельта
+~50 полей делится на категории по тому, **кто** может их заполнить.
 
-### 2.1 Биометрика взаимодействия (12 полей)
+### 2.1 Биометрика взаимодействия (~12 полей)
 
 ```
 mouse_velocity_avg, mouse_acceleration_avg, mouse_jitter_score,
@@ -74,21 +77,20 @@ keyboard_typing_rhythm_cv, drag_drop_events
 ```
 
 Эти величины может посчитать только **фронтовый SDK**, накапливающий
-DOM-события `mousemove` / `keydown` за сессию. Бэкенд их физически
-не способен «дописать» — если фронт не собирает, признаков нет.
+DOM-события `mousemove` / `keydown` за сессию.
 
-### 2.2 Fingerprinting (5 полей)
+### 2.2 Fingerprinting (~5 полей)
 
 ```
 canvas_fingerprint, audio_fingerprint, webgl_vendor,
 screen_color_depth, installed_fonts_count
 ```
 
-Каноническая fingerprinting-задача — снова **JS на клиенте**
-(FingerprintJS / `<canvas>` rendering hash / `AudioContext` fingerprint).
-Backend не получит без явной отправки.
+Каноническая fingerprinting-задача — JS на клиенте (FingerprintJS /
+`<canvas>` rendering hash / `AudioContext` fingerprint). Backend не
+получит без явной отправки.
 
-### 2.3 Form / clipboard поведение (13 полей)
+### 2.3 Form / clipboard поведение (~13 полей)
 
 ```
 backspace_ratio, clipboard_paste_ratio, copy_events_count,
@@ -100,7 +102,7 @@ zoom_level, pages_visited_count
 
 Тоже фронтовая зона — DOM-события формы.
 
-### 2.4 Network / device (10 полей)
+### 2.4 Network / device (~10 полей)
 
 ```
 ip_address_hash, connection_type, network_rtt_avg_ms, asn,
@@ -108,74 +110,63 @@ isp_name, screen_resolution, system_language, browser_language,
 accept_language, timezone
 ```
 
-Эти **может дополнить сам backend** из HTTP-заголовков и IP-геобазы
-без участия фронта: `Accept-Language`, `User-Agent`, ASN/ISP из
-MaxMind/IPinfo, RTT из TCP-метрик, разрешение экрана — с фронта (есть
-в `screen.width`).
+Эти **может дополнить сам backend** из HTTP-заголовков и IP-геобазы:
+`Accept-Language`, `User-Agent`, ASN/ISP из MaxMind/IPinfo, RTT из
+TCP-метрик. Кандидаты на enrichment-пакет.
 
-### 2.5 Browser identity (4 поля)
+### 2.5 Browser identity (~4 поля)
 
 ```
 browser_name, browser_version, os_type, os_version
 ```
 
-Парсится из `User-Agent` (на бэкенде, через `ua-parser` или
-`user_agents`). Сейчас приходит сырой `user_agent` — но trainer ждёт
-уже разобранные категории.
+Парсится из `User-Agent` (через `ua-parser` или `user_agents`). Сейчас
+приходит сырой `user_agent` — но trainer ждёт уже разобранные
+категории.
 
-### 2.6 Login / trust (5 полей)
+### 2.6 Login / trust (~5 полей)
 
 ```
 login_method, failed_login_attempts, time_since_last_login_sec,
 device_trust_score, timezone_offset
 ```
 
-Backend знает это **сам**, потому что это его доменная логика
-(auth-state, история сессий клиента) — но в payload событий
-`/score/behavior` не прокидывает.
+Backend знает это сам (auth-state, история сессий клиента) — но в
+payload событий `/score/behavior` не прокидывает.
 
-### 2.7 Transaction enrichment (6 полей)
+### 2.7 Transaction enrichment (~6 полей)
 
 ```
 currency_iso_cd, mcc_code, pos_cd, merchant_name, transaction_type,
 session_id
 ```
 
-Должны приходить из транзакционной системы вместе с событием —
-сейчас не валидируются.
+Должны приходить из транзакционной системы вместе с событием — сейчас
+не валидируются.
 
 ## 3. Опции решения
 
-### 3.1 Strict — расширить Pydantic-модель до 71 поля
+### 3.1 Strict — расширить Pydantic-модель до полного набора
 
-Превращаем `WebBehaviorEvent` в полную схему: все 71 поле, типы и
-диапазоны. `extra="forbid"`. Запросы без обязательных полей —
-HTTP 422.
+`WebBehaviorEvent` / `MobileBehaviorEvent` со всеми 66/67 полями,
+`extra="forbid"`. Запросы без обязательных полей — HTTP 422.
 
-**Pros:** контракт жёсткий, schema-drift невозможен, Pandera-валидация
-в трейнере становится тривиальной (схемы совпадают), ошибки видны
-сразу на клиенте.
+**Pros:** контракт жёсткий, schema-drift невозможен.
 
 **Cons:** требует, чтобы фронт сначала **внедрил SDK сбора биометрики/
-fingerprinting** (новый трек, недели работы), иначе все запросы
+fingerprinting** (отдельный трек, недели работы), иначе все запросы
 красные. Backend перестаёт работать до полной готовности фронта.
 
-### 3.2 Best-effort — принимать всё, дополнять на бэкенде, обучать на пересечении
+### 3.2 Best-effort — принимать всё, дополнять, обучать на пересечении ✅
 
-`WebBehaviorEvent` остаётся минимальным (как сейчас), backend
-**обогащает** payload тем, что может вытащить сам (3.1.4–3.1.6):
-- `app/enrich/headers.py` — `accept_language`, `system_language` из заголовков.
-- `app/enrich/ua.py` — `browser_name/version`, `os_type/version` из `user_agent`.
-- `app/enrich/geoip.py` — `asn`, `isp_name`, `ip_address_hash` из IP.
-- `app/enrich/session.py` — `login_method`, `failed_login_attempts`,
-  `time_since_last_login_sec`, `device_trust_score` из internal state.
+`WebBehaviorEvent` остаётся минимальным (`extra="allow"`), backend
+**обогащает** payload тем, что может вытащить сам.
 
-EventSink пишет в parquet **всё, что есть** (включая NaN на отсутствующих
-биометриках). Trainer работает на пересечении: NaN → 0 в Preprocessor
-(уже умеет).
+EventSink пишет в parquet **всё, что есть** (включая NaN на
+отсутствующих биометриках). Trainer работает на пересечении: NaN → 0 в
+`Preprocessor.transform_events` (уже умеет).
 
-**Pros:** не блокирует ни фронт, ни backend; постепенный rollout фич;
-покрывает ~30 из 71 поля без участия фронта.
+**Pros:** не блокирует ни фронт, ни backend; постепенный rollout фич.
 
 **Cons:** модель в bootstrap-периоде учится на разреженных биометриках —
 это вернёт реальное AUC к ~0.7–0.8 вместо нынешнего синтетического 1.0
@@ -183,59 +174,105 @@ EventSink пишет в parquet **всё, что есть** (включая NaN 
 
 ### 3.3 Гибрид — strict на серверных полях, optional на клиентских
 
-В Pydantic делаем 3 группы:
+В Pydantic три группы:
+
 - **Required (~30 полей):** identity, transaction, network — backend
   обязан их дополнить либо отдать 422.
 - **Optional (~41 поле):** биометрика / fingerprint — `default=None`,
   trainer обрабатывает пропуски.
-- Никаких `extra="allow"` — приходящие неизвестные поля логируются как
-  schema-drift warning.
-
-**Pros:** контракт частично жёсткий (сразу ловит баги в backend
-enrichment-логике), но не блокирует фронт.
-
-**Cons:** больше boilerplate Pydantic-моделей, нужна осмысленная
-дискриминация «опционально, но потеря качества» vs «обязательно».
+- Никаких `extra="allow"`; неизвестные поля → schema-drift warning.
 
 ## 4. Рекомендация
 
-**Идём по 3.2 (best-effort) во время bootstrap, мигрируем на 3.3
-(гибрид) когда стабилизируется набор enrichment'ов.** Чистый strict
-(3.1) бессмыслен до того момента, пока на фронте не появится SDK сбора
-биометрики — а это отдельный трек.
+**Идём по 3.2 (best-effort), мигрируем на 3.3 (гибрид), когда фронт
+накопит данные.** Реализация best-effort пути — см. секции 7–8.
 
-Конкретный порядок:
-
-1. Бэкенд начинает писать sink (см. `AntiFraudMLWeb/update.md` план) —
-   с тем, что есть в payload + минимальный enrichment (UA-parser,
-   `accept_language` из заголовков).
-2. После первой недели daily-train'а — Evidently-отчёт по drift
-   логирует «X% полей null в Y% строк», видим реальную полноту схемы.
-3. Расширяем enrichment-функции, сужаем optional → required по тем
-   полям, которые backend **реально** научился дополнять
-   (`browser_name`, `os_type`, `asn`, `login_method`...).
-4. Параллельно ставится задача frontend SDK — собирать мышь, клавиатуру,
-   canvas. Когда покрытие >80% сессий — переключаем эти поля в required.
+Следующий шаг — после первой недели daily-train'а посмотреть coverage
+(см. логи `event_sink_flush`) и переключить **те поля, которые backend
+реально научился дополнять** в `required` секции 3.3.
 
 ## 5. Что НЕ делать в этом треке
 
 - **Не трогать `WebBehaviorEvent` / `MobileBehaviorEvent` до
   одобрения архитектурного решения.** Жёсткое расширение схемы — это
-  breaking change для существующих интеграций.
-- **Не путать с MLOps-планом** (`AntiFraudMLWeb/update.md`). Sink
-  пишет «что приходит», retrain работает «на пересечении». Эти два
-  трека независимы.
-- **Не пытаться синхронизировать схемы вручную копи-пейстом.** Когда
-  дойдёт до 3.3, единственный источник истины — Pandera-schema в
-  `contracts/event_schema.py`, который импортируют обе стороны
-  (backend для валидации входа, trainer для валидации parquet'а перед
-  обучением).
+  breaking change.
+- **Не пытаться синхронизировать схемы вручную копи-пейстом.** Единый
+  источник истины — `contracts/event_schema_*.py`, sync делается через
+  `bash scripts/sync_contracts.sh` (rsync в `../AntiFraudML*/contracts/`).
 
-## 6. TODO (вне этого документа)
+## 6. Чек-лист — что сделано / осталось
 
-- [ ] Спецификация frontend SDK сбора биометрики (отдельный тикет).
-- [ ] `app/enrich/` — пакет UA/geo/header-enrichment'ов (отдельный PR).
-- [ ] `contracts/event_schema.py` — Pandera schema, единая для обеих
-      сторон (когда дойдём до 3.3).
-- [ ] Evidently-репорт по полноте полей (часть MLOps-плана, но
-      результат читается из этого трека).
+- [x] **`contracts/event_schema_{web,mobile}.py`** — pandera-схемы,
+      зеркалят `trainer/preprocess.py` обоих ML-репо. 66/67 полей.
+- [x] **`contracts/labels_schema.py`** — для `/admin/labels-batch`,
+      strict-валидация.
+- [x] **`scripts/sync_contracts.sh`** — rsync в оба ML-репо.
+- [x] **EventSink** (`app/persistence/event_sink.py`) — пишет всё что
+      приходит, fire-and-forget. Партиции в
+      `~/fraud/events{,_mobile}/dt=YYYY-MM-DD/part-*.parquet`.
+- [x] **Coverage logging** при flush — лог процента заполненности
+      каждого поля из `EVENT_FIELDS_*` (без значений, только статистика).
+- [ ] **`app/enrich/`** — пакет UA/geo/header-enrichment'ов (отдельный
+      PR, начинать когда первая итерация retrain'а пройдёт).
+- [ ] **Спецификация frontend SDK** сбора биометрики (отдельный тикет).
+- [ ] **Evidently-репорт** или дашборд по полноте полей (часть MLOps-плана).
+- [ ] **Миграция к 3.3 (гибрид)** — после стабилизации enrichment'ов и
+      появления frontend SDK.
+
+## 7. Реализация best-effort пути (что есть прямо сейчас)
+
+### 7.1 `contracts/` как single source of truth
+
+Pandera-схемы лежат в `Back/contracts/` и **импортируются обоими**
+сторонами:
+
+- Backend: `from contracts import EVENT_SCHEMA_WEB, EVENT_FIELDS_WEB,
+  LABELS_SCHEMA` (см. `app/persistence/event_sink.py`,
+  `app/api/admin.py`).
+- ML-репо: после `bash scripts/sync_contracts.sh` файлы лежат в
+  `../AntiFraudMLWeb/contracts/` и `../AntiFraudMLMobile/contracts/`,
+  trainer импортирует напрямую.
+
+Схемы намеренно слабые: `strict=False`, все non-identity колонки
+`required=False, nullable=True`. Это позволяет:
+
+- Фронту слать любое подмножество полей без 422.
+- Backend'у писать в parquet через event_sink что есть.
+- Trainer'у получать партиции разной полноты — `Preprocessor` уже
+  умеет nan → 0.
+
+### 7.2 Coverage logging
+
+На каждом flush event_sink логирует `coverage: dict[field, fraction]`
+через structlog. Пример:
+
+```json
+{"event": "event_sink_flush", "kind": "web", "rows": 1000,
+ "coverage": {"customer_id": 1.0, "browser_fingerprint": 0.42,
+              "mouse_velocity_avg": 0.0, ...}}
+```
+
+Это даёт **drift visibility без жёсткой валидации**. Алертам на drop
+покрытия — самое место, но это уже сторона observability stack'а.
+
+### 7.3 Где живёт код
+
+- `Back/contracts/__init__.py` — re-exports.
+- `Back/contracts/event_schema_web.py` — 66 полей.
+- `Back/contracts/event_schema_mobile.py` — 67 полей.
+- `Back/contracts/labels_schema.py` — strict, для `/admin/labels-batch`.
+- `Back/scripts/sync_contracts.sh` — rsync в оба ML-репо.
+- `Back/app/persistence/event_sink.py:_coverage` — coverage logging.
+
+## 8. Дальше: путь к 3.3 (гибрид)
+
+Когда coverage по группам 2.4–2.7 (то, что backend может дополнить
+сам) стабильно >95%:
+
+1. Поднять `app/enrich/` (UA-parser, geoip, header parsing,
+   session-state).
+2. Перенести эти поля из best-effort в required в `WebBehaviorEvent` /
+   `MobileBehaviorEvent` (pydantic).
+3. Когда frontend SDK выпустит — повторить шаг 2 для биометрики.
+4. Снять `extra="allow"`, оставить `extra="ignore"` для совместимости
+   со старыми клиентами.

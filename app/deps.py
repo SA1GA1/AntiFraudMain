@@ -21,10 +21,15 @@ class Runtime:
 
 
 def build_runtime(settings: Settings) -> Runtime:
-    loader = LocalFileLoader(
-        mobile_path=settings.mobile_model_path,
-        web_path=settings.web_model_path,
-    )
+    if settings.fraud_model_backend == "mlflow":
+        from app.ml.mlflow_loader import MlflowLoader
+
+        loader: ModelLoader = MlflowLoader(tracking_uri=settings.mlflow_tracking_uri)
+    else:
+        loader = LocalFileLoader(
+            mobile_path=settings.mobile_model_path,
+            web_path=settings.web_model_path,
+        )
     history = maybe_load(settings.customer_history_path)
 
     from app.llm.client import OllamaClient
@@ -50,6 +55,19 @@ def get_loader(request: Request) -> Optional[ModelLoader]:
 
 def get_history(request: Request):
     return request.app.state.history
+
+
+def get_history_web(request: Request):
+    """Per-kind history (todo.md #2) with fallback to legacy single-history state."""
+    return getattr(request.app.state, "history_web", None) or request.app.state.history
+
+
+def get_history_mobile(request: Request):
+    return getattr(request.app.state, "history_mobile", None) or request.app.state.history
+
+
+def get_event_sink(request: Request):
+    return getattr(request.app.state, "event_sink", None)
 
 
 def get_llm(request: Request):

@@ -17,13 +17,26 @@ import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional, Protocol
+from typing import Any, Literal, Optional, Protocol
 
 import numpy as np
 import pandas as pd
 import torch
 
 _LOAD_LOCK = threading.Lock()
+
+Kind = Literal["web", "mobile"]
+
+
+@dataclass
+class ReloadResult:
+    """Возвращается ModelLoader.reload — содержит bundle, версию и опц. history."""
+
+    kind: Kind
+    bundle: "ModelBundle"
+    version: int
+    previous_version: Optional[int]
+    history_df: Optional[pd.DataFrame] = None
 
 
 @dataclass
@@ -61,6 +74,7 @@ class ModelBundle:
 class ModelLoader(Protocol):
     def load_mobile(self) -> ModelBundle: ...
     def load_web(self) -> ModelBundle: ...
+    def reload(self, kind: Kind, version: Optional[int] = None) -> ReloadResult: ...
 
 
 def _alias_trainer(pkg) -> None:
@@ -114,3 +128,13 @@ class LocalFileLoader:
 
             self._web = _load_bundle(self.web_path, _pkg_web)
         return self._web
+
+    def reload(self, kind: Kind, version: Optional[int] = None) -> ReloadResult:
+        """Сбрасывает кэш и пере-загружает с диска. `version` игнорируется (file backend не версионирует)."""
+        if kind == "web":
+            self._web = None
+            bundle = self.load_web()
+        else:
+            self._mobile = None
+            bundle = self.load_mobile()
+        return ReloadResult(kind=kind, bundle=bundle, version=0, previous_version=None, history_df=None)

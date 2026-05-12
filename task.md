@@ -253,3 +253,75 @@ device_trust_score — Уровень доверия к устройству
 2) Должно быть гарантированно меньше 1 секунды
 3) Все файлы уже есть и нейронки обучены, остается только сам backend и развернуть небольшую LLM локально
 4) Данные, которые пройдут все проверки backend-а в таком же виде будут отправлены в нейронки
+
+---
+
+## Implementation status
+
+Прогресс по ТЗ на текущую дату:
+
+### Случай 1 — поведение пользователя (✅ реализован)
+
+`POST /score/behavior`, дискриминатор `is_web_payload` → web/mobile, 7
+правил из ТЗ (`app/pipelines/behavior/rules.py`):
+
+1. `rule_amount_outlier` — выход из диапазона стандартных платежей.
+2. `rule_geo_teleport` — быстрое перемещение между удалёнными пунктами.
+3. `rule_night_anomaly` — изменение времени покупок.
+4. `rule_new_device` — анализ устройств.
+5. `rule_vpn_proxy` — проверка на VPN / Proxy / Tor.
+6. `rule_transfer_spike` — скачок переводов.
+7. `rule_micro_session` — сессия < 3 сек.
+
+Fail-fast: если сумма весов сработавших правил ≥ `RULE_THRESHOLD_BEHAVIOR`,
+возвращаем rule-score без FraudMLP. Иначе — `ModelBundle.predict_proba`.
+
+### Случай 2 — переписка (✅ реализован)
+
+`POST /score/chat`. Сначала regex'ы из `app/pipelines/chat/patterns.py` +
+сигналы из `counterparty_metadata`. При триггере — Ollama
+(`qwen2.5:3b-instruct`).
+
+### Случай 3 — мерчанты (✅ реализован)
+
+`POST /score/merchant`. GET к `merchant_mock/{site}` (отдельный сервис на
+:9000, seed.json), правила (домен, ИНН, отзывы), LLM по карточке.
+
+### Контракт ответа (✅ реализован)
+
+```json
+{"score": 7.4, "decision": "sms", "reasons": [...], "used_model": true, "latency_ms": 47}
+```
+
+`decision`: `safe < 3.0 ≤ review < 6.0 ≤ sms < 8.0 ≤ biometry`. SLA p95 < 900мс
+проверяется в `tests/test_latency.py`.
+
+### Модели и MLflow (✅ инфраструктура готова)
+
+По вопросу из ТЗ «когда стоит загружать нейронку в память на backend при
+условии MLflow»:
+
+- Модели грузятся **один раз в lifespan** (`app/main.py`), синглтон в
+  `app.state.models`. Никаких загрузок в хендлере.
+- `ModelLoader` — Protocol с двумя реализациями: `LocalFileLoader` (default,
+  для bootstrap / dev) и `MlflowLoader` (`FRAUD_MODEL_BACKEND=mlflow` →
+  `models:/fraud_mlp_{web,mobile}/Production`). Switcher в
+  `app/deps.build_runtime`.
+- Hot-swap без рестарта: `POST /admin/reload-model` с Bearer-auth — вызывается
+  из `daily_flow.notify_backend` ML-репо после promote в Production.
+- Откат: тот же endpoint с явной `version=N-1`.
+
+### Daily-retrain pipeline (✅ интеграция готова)
+
+- **Event sink** (`app/persistence/event_sink.py`): после каждого
+  `/score/behavior` payload fire-and-forget пишется в
+  `~/fraud/events{,_mobile}/dt=YYYY-MM-DD/`. Партиции потребляет daily_flow
+  ML-репо.
+- **Labels endpoint** (`POST /admin/labels-batch`): операторы шлют ручную
+  разметку, она кладётся в `~/fraud/labels{,_mobile}/`.
+- **Pandera-контракты** (`contracts/`): зеркало `trainer/preprocess.py`
+  обоих ML-репо, синхронизируется в их `contracts/` через
+  `bash scripts/sync_contracts.sh`.
+
+См. полное описание в `README.md` и `CLAUDE.md`. Текущий список не-блокирующих
+улучшений — в `todo.md`.

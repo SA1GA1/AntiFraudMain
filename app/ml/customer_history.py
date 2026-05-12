@@ -23,6 +23,10 @@ class CustomerHistory:
         df = pq.read_table(str(path)).to_pandas()
         return cls(dataframe=df)
 
+    @classmethod
+    def from_dataframe(cls, df: pd.DataFrame) -> "CustomerHistory":
+        return cls(dataframe=df)
+
 
 def maybe_load(path: Path) -> Optional[CustomerHistory]:
     if not Path(path).exists():
