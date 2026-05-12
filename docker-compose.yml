@@ -11,28 +11,16 @@ services:
       MOBILE_MODEL_PATH: /models/mobile_best.pt
       WEB_MODEL_PATH: /models/web_best.pt
       CUSTOMER_HISTORY_PATH: /models/customer_features.parquet
-      OLLAMA_URL: http://ollama:11434
+      OLLAMA_URL: http://host.docker.internal:11434
       MERCHANT_API_URL: http://merchant_mock:9000
     volumes:
       - ./models:/models:ro
       - ./app:/app/app:ro
       - ./tests:/app/tests:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      - ollama
       - merchant_mock
-
-  ollama:
-    image: ollama/ollama:latest
-    container_name: antifraud-ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   merchant_mock:
     build: ./merchant_mock
@@ -40,6 +28,3 @@ services:
     container_name: antifraud-merchant-mock
     ports:
       - "9000:9000"
-
-volumes:
-  ollama_data:
